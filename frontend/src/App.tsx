@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
 import BottomNavigation from './components/BottomNavigation';
-import SearchContent from './components/SearchContent';
+import SearchContent from './components/search/SearchContent';
 import JudgeContent from './components/JudgeContent';
-import ArgueContent from './components/ArgueContent';
+import StrategyContent from './components/strategy/StrategyContent';
 
 function App() {
   const [activeTab, setActiveTab] = useState('search');
@@ -15,7 +15,7 @@ function App() {
       case 'judge':
         return <JudgeContent />;
       case 'argue':
-        return <ArgueContent />;
+        return <StrategyContent />;
       default:
         return <SearchContent />;
     }

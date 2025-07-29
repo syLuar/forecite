@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Loader2, Send, X, Scale } from 'lucide-react';
-import { mockLegalDocuments, LegalDocument } from '../data/mockData';
-import { searchDocuments, SearchFilters as SearchFiltersType } from '../utils/searchUtils';
+import { mockLegalDocuments, LegalDocument } from '../../data/mockSearchData';
+import { searchDocuments, SearchFilters as SearchFiltersType } from '../../utils/searchUtils';
 import SearchResult from './SearchResult';
 import SearchFilters from './SearchFilters';
 
@@ -12,7 +12,7 @@ const SearchContent: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  const handleSearch = async (searchQuery: string = query, showLoading: boolean = true) => {
+  const handleSearch = useCallback(async (searchQuery: string = query, showLoading: boolean = true) => {
     if (showLoading) {
       setIsLoading(true);
     }
@@ -29,7 +29,7 @@ const SearchContent: React.FC = () => {
     if (showLoading) {
       setIsLoading(false);
     }
-  };
+  }, [query, filters]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,10 +52,10 @@ const SearchContent: React.FC = () => {
     if (hasSearched) {
       handleSearch(query, false); // No loading for filter changes
     }
-  }, [filters]);
+  }, [filters, hasSearched, handleSearch, query]);
 
   return (
-    <div className="flex-1 p-4 md:p-6 pb-24 md:pb-8">
+    <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
       <div className="max-w-6xl mx-auto">
         {/* Search Header */}
         <div className="mb-8">

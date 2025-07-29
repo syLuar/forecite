@@ -1,7 +1,7 @@
 import React from 'react';
 import { Filter, Grid, Scale, FileText } from 'lucide-react';
-import { legalCategories, LegalDocument } from '../data/mockData';
-import { SearchFilters as SearchFiltersType } from '../utils/searchUtils';
+import { legalCategories, LegalDocument } from '../../data/mockSearchData';
+import { SearchFilters as SearchFiltersType } from '../../utils/searchUtils';
 
 interface SearchFiltersProps {
   filters: SearchFiltersType;

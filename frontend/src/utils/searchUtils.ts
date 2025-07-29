@@ -1,4 +1,4 @@
-import { LegalDocument } from '../data/mockData';
+import { LegalDocument } from '../data/mockSearchData';
 
 export interface SearchFilters {
   category: string;

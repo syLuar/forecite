@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Calendar, MapPin, Scale, FileText, HelpCircle, ExternalLink } from 'lucide-react';
-import { LegalDocument } from '../data/mockData';
-import { highlightMatches } from '../utils/searchUtils';
-import Modal from './Modal';
+import { LegalDocument } from '../../data/mockSearchData';
+import { highlightMatches } from '../../utils/searchUtils';
+import Modal from '../shared/Modal';
 
 interface SearchResultProps {
   document: LegalDocument;
