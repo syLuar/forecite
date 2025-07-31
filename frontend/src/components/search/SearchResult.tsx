@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, MapPin, Scale, FileText, HelpCircle, ExternalLink } from 'lucide-react';
+import { Calendar, MapPin, Scale, FileText, HelpCircle, Plus, Check, Undo2, AlertCircle } from 'lucide-react';
 import { LegalDocument } from '../../data/mockSearchData';
 import { highlightMatches } from '../../utils/searchUtils';
 import Modal from '../shared/Modal';
@@ -12,6 +12,8 @@ interface SearchResultProps {
 const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) => {
   const [showModal, setShowModal] = useState(false);
   const [explanation, setExplanation] = useState('');
+  const [isAdded, setIsAdded] = useState(false);
+  const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -45,8 +47,13 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
     });
   };
 
+  const hasRelevance = document.relevanceScore !== undefined && document.relevanceScore > 0;
+  
   const generateRelevanceExplanation = () => {
-    // Mock LLM explanation - replace with actual API call later
+    if (!hasRelevance) {
+      return `This document was included in results because it's part of our comprehensive legal database, though it doesn't contain direct matches for your search terms "${searchQuery}". It may still provide useful context or background information for your research.`;
+    }
+    
     const explanations = [
       `This ${document.category === 'precedent' ? 'case' : 'document'} is highly relevant because your search terms "${searchQuery}" directly match key legal concepts discussed in ${document.title}. The document addresses similar legal principles and contains matching terminology found in your query.`,
       
@@ -65,6 +72,34 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
     setShowModal(true);
   };
 
+  const handleAddReference = () => {
+    console.log('Added reference:', document);
+    setIsAdded(true);
+
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    
+    const id = setTimeout(() => {
+      setIsAdded(false);
+    }, 10000);
+    
+    setTimeoutId(id);
+  };
+
+  const handleUndo = (e: React.MouseEvent) => {
+    e.stopPropagation(); 
+    console.log('Removed reference:', document);
+    
+    setIsAdded(false);
+    
+
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      setTimeoutId(null);
+    }
+  };
+
   return (
     <>
       <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200 p-6 mb-4 border border-gray-200">
@@ -74,20 +109,27 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
               {getCategoryIcon(document.category)}
               <span className="ml-1.5">{getCategoryLabel(document.category)}</span>
             </span>
-            {document.relevanceScore && (
-              <div className="flex items-center space-x-3">
-                <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-primary text-white">
-                  Relevance: {Math.round(document.relevanceScore)}%
+            <div className="flex items-center space-x-3">
+              {document.relevanceScore !== undefined && (
+                <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${hasRelevance ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>
+                  {hasRelevance ? (
+                    <>Relevance: {Math.round(document.relevanceScore)}%</>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-4 w-4 mr-1" />
+                      General Result
+                    </>
+                  )}
                 </span>
-                <button
-                  onClick={handleFindOutWhy}
-                  className="text-sm text-primary hover:text-primary-700 underline flex items-center font-medium"
-                >
-                  <HelpCircle className="h-4 w-4 mr-1" />
-                  Find out why
-                </button>
-              </div>
-            )}
+              )}
+              <button
+                onClick={handleFindOutWhy}
+                className="text-sm text-primary hover:text-primary-700 underline flex items-center font-medium"
+              >
+                <HelpCircle className="h-4 w-4 mr-1" />
+                Find out why
+              </button>
+            </div>
           </div>
         </div>
 
@@ -141,9 +183,32 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
               {formatDate(document.date)}
             </div>
           </div>
-          <button className="text-primary hover:text-primary-700 font-medium">
-            View Full Document →
-          </button>
+          
+          <div className="flex items-center">
+            {isAdded ? (
+              <>
+                <span className="flex items-center text-green-600 font-medium mr-3">
+                  <Check className="h-4 w-4 mr-1" />
+                  Added
+                </span>
+                <button 
+                  onClick={handleUndo}
+                  className="flex items-center text-gray-500 hover:text-gray-700 font-medium"
+                >
+                  <Undo2 className="h-4 w-4 mr-1" />
+                  Undo
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={handleAddReference}
+                className="flex items-center text-primary hover:text-primary-700 font-medium"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -155,26 +220,22 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
       >
         <div className="space-y-4">
           <div className="text-center">
-            <span className="inline-flex items-center px-4 py-2 rounded-full text-base font-medium bg-primary text-white">
-              Relevance Score: {Math.round(document.relevanceScore || 0)}%
+            <span className={`inline-flex items-center px-4 py-2 rounded-full text-base font-medium ${hasRelevance ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>
+              {hasRelevance ? (
+                <>Relevance Score: {Math.round(document.relevanceScore || 0)}%</>
+              ) : (
+                <>
+                  <AlertCircle className="h-5 w-5 mr-2" />
+                  General Result
+                </>
+              )}
             </span>
           </div>
           
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-800 leading-relaxed">{explanation}</p>
-          </div>
-          
-          <div className="flex justify-center pt-4">
-            <button
-              onClick={() => {
-                // TODO: Implement actual link opening
-                console.log('Opening document:', document.title);
-              }}
-              className="flex items-center px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Open Document
-            </button>
+          <div className={`border rounded-lg p-4 ${hasRelevance ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+            <p className={`text-sm leading-relaxed ${hasRelevance ? 'text-blue-800' : 'text-gray-700'}`}>
+              {explanation}
+            </p>
           </div>
         </div>
       </Modal>
