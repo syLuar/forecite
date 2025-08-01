@@ -3,6 +3,8 @@ import { Calendar, MapPin, Scale, FileText, HelpCircle, Plus, Check, Undo2, Aler
 import { LegalDocument } from '../../data/mockSearchData';
 import { highlightMatches } from '../../utils/searchUtils';
 import Modal from '../shared/Modal';
+import SelectCaseModal from '../shared/SelectCaseModal';
+import { Case } from '../../data/mockStrategyData';
 
 interface SearchResultProps {
   document: LegalDocument;
@@ -11,9 +13,13 @@ interface SearchResultProps {
 
 const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) => {
   const [showModal, setShowModal] = useState(false);
+  const [showSelectCaseModal, setShowSelectCaseModal] = useState(false);
   const [explanation, setExplanation] = useState('');
   const [isAdded, setIsAdded] = useState(false);
   const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  const [addedToCase, setAddedToCase] = useState<Case | null>(null);
+
+  const hasRelevance = document.relevanceScore !== undefined && document.relevanceScore > 0;
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -47,8 +53,6 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
     });
   };
 
-  const hasRelevance = document.relevanceScore !== undefined && document.relevanceScore > 0;
-  
   const generateRelevanceExplanation = () => {
     if (!hasRelevance) {
       return `This document was included in results because it's part of our comprehensive legal database, though it doesn't contain direct matches for your search terms "${searchQuery}". It may still provide useful context or background information for your research.`;
@@ -73,26 +77,40 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
   };
 
   const handleAddReference = () => {
-    console.log('Added reference:', document);
-    setIsAdded(true);
+    setShowSelectCaseModal(true);
+  };
 
+  const handleAddToCase = (caseItem: Case, legalDocument: LegalDocument) => {
+    console.log('Added document to case:', {
+      case: caseItem,
+      document: legalDocument
+    });
+    
+    setIsAdded(true);
+    setAddedToCase(caseItem);
+    
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
     
     const id = setTimeout(() => {
       setIsAdded(false);
+      setAddedToCase(null);
     }, 10000);
     
     setTimeoutId(id);
   };
 
   const handleUndo = (e: React.MouseEvent) => {
-    e.stopPropagation(); 
-    console.log('Removed reference:', document);
+    e.stopPropagation();
+    console.log('Removed document from case:', {
+      case: addedToCase,
+      document: document
+    });
     
+    // Reset state
     setIsAdded(false);
-    
+    setAddedToCase(null);
 
     if (timeoutId) {
       clearTimeout(timeoutId);
@@ -111,7 +129,7 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
             </span>
             <div className="flex items-center space-x-3">
               {document.relevanceScore !== undefined && (
-                <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${hasRelevance ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>
+                <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${hasRelevance ? 'bg-primary text-white' : 'bg-red-100 text-red-800'}`}>
                   {hasRelevance ? (
                     <>Relevance: {Math.round(document.relevanceScore)}%</>
                   ) : (
@@ -189,7 +207,7 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
               <>
                 <span className="flex items-center text-green-600 font-medium mr-3">
                   <Check className="h-4 w-4 mr-1" />
-                  Added
+                  Added to {addedToCase?.title}
                 </span>
                 <button 
                   onClick={handleUndo}
@@ -220,7 +238,7 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
       >
         <div className="space-y-4">
           <div className="text-center">
-            <span className={`inline-flex items-center px-4 py-2 rounded-full text-base font-medium ${hasRelevance ? 'bg-primary text-white' : 'bg-gray-200 text-gray-700'}`}>
+            <span className={`inline-flex items-center px-4 py-2 rounded-full text-base font-medium ${hasRelevance ? 'bg-primary text-white' : 'bg-red-100 text-red-800'}`}>
               {hasRelevance ? (
                 <>Relevance Score: {Math.round(document.relevanceScore || 0)}%</>
               ) : (
@@ -232,13 +250,21 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
             </span>
           </div>
           
-          <div className={`border rounded-lg p-4 ${hasRelevance ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
-            <p className={`text-sm leading-relaxed ${hasRelevance ? 'text-blue-800' : 'text-gray-700'}`}>
+          <div className={`border rounded-lg p-4 ${hasRelevance ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
+            <p className={`text-sm leading-relaxed ${hasRelevance ? 'text-blue-800' : 'text-red-800'}`}>
               {explanation}
             </p>
           </div>
         </div>
       </Modal>
+
+      {/* Select Case Modal */}
+      <SelectCaseModal
+        isOpen={showSelectCaseModal}
+        onClose={() => setShowSelectCaseModal(false)}
+        document={document}
+        onAddToCase={handleAddToCase}
+      />
     </>
   );
 };
