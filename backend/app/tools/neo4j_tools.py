@@ -665,22 +665,21 @@ def find_authority_chain(start_case: str, max_depth: int = 3) -> List[Dict[str, 
     """
     try:
         with get_session() as session:
-            query = """
-            MATCH path = (start:Case {citation: $start_case})<-[:CITES*1..$max_depth]-(end:Document)
+            # Use literal max_depth value to avoid parameter issues
+            query = f"""
+            MATCH path = (start:Case {{citation: $start_case}})<-[:CITES*1..{max_depth}]-(end:Document)
             WITH path, length(path) as chain_length
             UNWIND nodes(path) as node
             WITH path, chain_length, 
                  [n in nodes(path) WHERE n:Case | n.citation] as case_chain,
-                 [n in nodes(path) WHERE n:Document | {citation: n.citation, year: n.year}] as doc_chain
+                 [n in nodes(path) WHERE n:Document | {{citation: n.citation, year: n.year}}] as doc_chain
             RETURN case_chain,
                    doc_chain,
                    chain_length
             ORDER BY chain_length DESC
             """
 
-            result = session.run(
-                query, {"start_case": start_case, "max_depth": max_depth}
-            )
+            result = session.run(query, {"start_case": start_case})
             return [dict(record) for record in result]
 
     except Neo4jError as e:
@@ -1022,6 +1021,264 @@ def trace_argument_flow(
         return []
 
 
+def get_enhanced_chunk_context(chunk_id: str) -> Dict[str, Any]:
+    """
+    Get enriched context for a chunk including surrounding chunks, references, and cited cases.
+    
+    Args:
+        chunk_id: The chunk ID to get enhanced context for
+        
+    Returns:
+        Dictionary with comprehensive chunk context
+    """
+    try:
+        with get_session() as session:
+            query = """
+            MATCH (target:Chunk {id: $chunk_id})-[:PART_OF]->(doc:Document)
+            
+            // Get surrounding chunks
+            OPTIONAL MATCH (surrounding:Chunk)-[:PART_OF]->(doc)
+            WHERE surrounding.chunk_index >= target.chunk_index - 2
+              AND surrounding.chunk_index <= target.chunk_index + 2
+            
+            // Get chunk references
+            OPTIONAL MATCH (target)-[:REFERENCES_CHUNK]->(referenced:Chunk)-[:PART_OF]->(ref_doc:Document)
+            OPTIONAL MATCH (referencing:Chunk)-[:REFERENCES_CHUNK]->(target)
+            OPTIONAL MATCH (referencing)-[:PART_OF]->(ref_doc2:Document)
+            
+            // Get cited cases from this chunk
+            OPTIONAL MATCH (doc)-[:CITES]->(cited_case:Case)
+            WHERE any(case_ref in target.cases WHERE case_ref = cited_case.citation)
+            
+            RETURN target.id as chunk_id,
+                   target.text as text,
+                   target.summary as summary,
+                   target.cases as cases,
+                   target.holdings as holdings,
+                   target.legal_tests as legal_tests,
+                   doc.citation as document_citation,
+                   doc.year as document_year,
+                   doc.jurisdiction as jurisdiction,
+                   collect(DISTINCT {
+                       chunk_id: surrounding.id,
+                       text: surrounding.text,
+                       summary: surrounding.summary,
+                       chunk_index: surrounding.chunk_index
+                   }) as surrounding_chunks,
+                   collect(DISTINCT {
+                       chunk_id: referenced.id,
+                       summary: referenced.summary,
+                       document: ref_doc.citation
+                   }) as outgoing_references,
+                   collect(DISTINCT {
+                       chunk_id: referencing.id,
+                       summary: referencing.summary,
+                       document: ref_doc2.citation
+                   }) as incoming_references,
+                   collect(DISTINCT {
+                       citation: cited_case.citation,
+                       year: cited_case.year
+                   }) as cited_cases
+            """
+            
+            result = session.run(query, {"chunk_id": chunk_id})
+            record = result.single()
+            
+            if record:
+                data = dict(record)
+                # Sort surrounding chunks by index
+                data["surrounding_chunks"] = sorted([c for c in data["surrounding_chunks"] if c["chunk_id"]], 
+                                                   key=lambda x: x["chunk_index"])
+                return data
+            return {}
+            
+    except Exception as e:
+        logger.error(f"Error in get_enhanced_chunk_context: {e}")
+        return {}
+
+
+def bulk_precedent_analysis(case_citations: List[str]) -> Dict[str, Any]:
+    """
+    Analyze multiple cases for precedent strength, jurisdiction, and recency in a single query.
+    
+    Args:
+        case_citations: List of case citations to analyze
+        
+    Returns:
+        Dictionary with comprehensive precedent analysis
+    """
+    try:
+        with get_session() as session:
+            query = """
+            UNWIND $case_citations as citation
+            OPTIONAL MATCH (case:Case {citation: citation})
+            OPTIONAL MATCH (case)<-[:CITES]-(citing_doc:Document)
+            OPTIONAL MATCH (citing_doc)-[:HEARD_IN]->(court:Court)
+            
+            WITH case, citation,
+                 count(citing_doc) as citation_count,
+                 collect(DISTINCT citing_doc.jurisdiction) as citing_jurisdictions,
+                 max(citing_doc.year) as most_recent_citation,
+                 avg(CASE court.level 
+                     WHEN 'Appellate' THEN 3
+                     WHEN 'Superior' THEN 2 
+                     ELSE 1 
+                 END) as avg_authority_weight
+            
+            RETURN citation,
+                   case.year as case_year,
+                   citation_count,
+                   citing_jurisdictions,
+                   most_recent_citation,
+                   avg_authority_weight,
+                   citation_count * coalesce(avg_authority_weight, 1) as precedent_strength,
+                   size(citing_jurisdictions) as jurisdictional_reach
+            ORDER BY precedent_strength DESC
+            """
+            
+            result = session.run(query, {"case_citations": case_citations})
+            records = [dict(record) for record in result]
+            
+            # Calculate overall metrics
+            total_strength = sum(r.get("precedent_strength", 0) for r in records)
+            avg_recency = sum(
+                val
+                for r in records
+                if (val := r.get("most_recent_citation")) is not None and isinstance(val, (int, float)) and val > 0
+            )
+            
+            if avg_recency > 0:
+                avg_recency = avg_recency / len([r for r in records if r.get("most_recent_citation", 0) > 0])
+            
+            return {
+                "individual_analysis": records,
+                "summary": {
+                    "total_cases": len(case_citations),
+                    "found_cases": len([r for r in records if r.get("case_year")]),
+                    "total_precedent_strength": total_strength,
+                    "average_recency": avg_recency,
+                    "strongest_precedent": max(records, key=lambda x: x.get("precedent_strength", 0)) if records else None
+                }
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in bulk_precedent_analysis: {e}")
+        return {"error": str(e)}
+
+
+def find_precedent_chains(case_citation: str, max_depth: int = 3) -> Dict[str, Any]:
+    """
+    Follow citation chains to build authority hierarchies and precedent relationships.
+    
+    Args:
+        case_citation: Starting case citation
+        max_depth: Maximum depth to follow citation chains
+        
+    Returns:
+        Dictionary with precedent chains and authority analysis
+    """
+    try:
+        with get_session() as session:
+            # Build the query with literal max_depth value to avoid parameter issues
+            query = f"""
+            MATCH (start_case:Case {{citation: $case_citation}})
+            
+            // Find citation chains going backwards (authorities this case cites)
+            OPTIONAL MATCH backwards_path = (start_doc:Document {{citation: $case_citation}})-[:CITES*1..{max_depth}]->(authority:Case)
+            
+            // Find citation chains going forwards (cases that cite this case)
+            OPTIONAL MATCH forwards_path = (start_case)<-[:CITES*1..{max_depth}]-(citing_doc:Document)
+            
+            WITH start_case,
+                 collect(DISTINCT {{
+                     chain_type: 'cites_authority',
+                     target_case: authority.citation,
+                     target_year: authority.year,
+                     chain_length: length(backwards_path)
+                 }}) as authority_chains,
+                 collect(DISTINCT {{
+                     chain_type: 'cited_by',
+                     target_document: citing_doc.citation,
+                     target_year: citing_doc.year,
+                     chain_length: length(forwards_path)
+                 }}) as citing_chains
+            
+            RETURN start_case.citation as base_case,
+                   start_case.year as base_year,
+                   authority_chains,
+                   citing_chains,
+                   size(authority_chains) as authorities_count,
+                   size(citing_chains) as citations_count
+            """
+            
+            result = session.run(query, {"case_citation": case_citation})
+            record = result.single()
+            
+            if record:
+                return dict(record)
+            return {"base_case": case_citation, "error": "Case not found"}
+            
+    except Exception as e:
+        logger.error(f"Error in find_precedent_chains: {e}")
+        return {"error": str(e)}
+
+
+def extract_case_patterns(query_text: str) -> List[str]:
+    """
+    Extract potential case citations from query text using regex patterns.
+    
+    Args:
+        query_text: Text to search for case citation patterns
+        
+    Returns:
+        List of potential case citations found
+    """
+    import re
+    
+    # Common citation patterns
+    patterns = [
+        r'\[\d{4}\]\s+\w+\s+\d+',  # [2019] SGCA 42
+        r'\(\d{4}\)\s+\d+\s+\w+',  # (2019) 1 SLR 123
+        r'\w+\s+v\.?\s+\w+',       # Case v Case
+    ]
+    
+    citations = []
+    for pattern in patterns:
+        matches = re.findall(pattern, query_text, re.IGNORECASE)
+        citations.extend(matches)
+    
+    return list(set(citations))  # Remove duplicates
+
+
+def smart_context_expansion(initial_results: List[Dict]) -> List[Dict]:
+    """
+    Use graph relationships to enrich search results with context.
+    
+    Args:
+        initial_results: List of initial search results
+        
+    Returns:
+        List of enhanced results with additional context
+    """
+    enhanced_results = []
+    
+    for result in initial_results[:8]:  # Limit to top 8 to avoid too much processing
+        chunk_id = result.get("chunk_id")
+        if chunk_id:
+            # Get enhanced context
+            context = get_enhanced_chunk_context(chunk_id)
+            result["enhanced_context"] = context
+            
+            # Add precedent analysis if cases are mentioned
+            if "cases" in result and result["cases"]:
+                case_analysis = bulk_precedent_analysis(result["cases"])
+                result["precedent_analysis"] = case_analysis
+        
+        enhanced_results.append(result)
+    
+    return enhanced_results
+
+
 # Cleanup function to close the driver
 def close_neo4j_connection():
     """Close the Neo4j driver connection."""
@@ -1032,7 +1289,7 @@ def close_neo4j_connection():
 # List of all available tools for easy import
 __all__ = [
     "vector_search",
-    "fulltext_search",
+    "fulltext_search", 
     "find_case_citations",
     "assess_precedent_strength",
     "find_legal_concepts",
@@ -1045,5 +1302,10 @@ __all__ = [
     "find_chunk_references",
     "get_chunk_context",
     "trace_argument_flow",
+    "get_enhanced_chunk_context",
+    "bulk_precedent_analysis", 
+    "find_precedent_chains",
+    "extract_case_patterns",
+    "smart_context_expansion",
     "close_neo4j_connection",
 ]

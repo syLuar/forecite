@@ -2,3 +2,7 @@
 */.DS_Store
 data/
 *.db
+.vscode/
+
+# Cache directory for LLM results (embeddings, summaries, entities)
+cache/

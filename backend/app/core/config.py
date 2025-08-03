@@ -20,7 +20,6 @@ class Settings(BaseSettings):
 
     # Google Gemini Configuration
     google_api_key: str = Field(..., env="GOOGLE_API_KEY")
-    gemini_model: str = Field("gemini-2.5-flash", env="GEMINI_MODEL")
 
     # LangSmith Configuration
     langsmith_tracing: bool = Field(False, env="LANGSMITH_TRACING")
