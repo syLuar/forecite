@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FolderOpen, Plus, FileText, Trash2, Edit3 } from 'lucide-react';
+import { FolderOpen, Plus, FileText, Trash2 } from 'lucide-react';
 import { apiClient } from '../../services/api';
 import { CaseFileListItem, CreateCaseFileRequest } from '../../types/api';
 
@@ -74,7 +74,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-gray-100 rounded-lg shadow-md p-6 border border-gray-200">
         <div className="flex items-center justify-center">
           <div className="animate-spin h-8 w-8 border-b-2 border-primary rounded-full"></div>
           <span className="ml-2">Loading case files...</span>
@@ -84,7 +84,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md">
+    <div className="bg-gray-100 rounded-lg shadow-md border border-gray-200">
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center">
@@ -102,7 +102,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
       </div>
 
       {showCreateForm && (
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
+        <div className="p-4 border-b border-gray-200 bg-white">
           <form onSubmit={handleCreateCaseFile} className="space-y-3">
             <div>
               <input
@@ -155,7 +155,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
               <div
                 key={caseFile.id}
                 onClick={() => onSelectCaseFile(caseFile.id)}
-                className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
+                className={`p-4 cursor-pointer hover:bg-white transition-colors ${
                   selectedCaseFileId === caseFile.id ? 'bg-primary/10 border-r-4 border-primary' : ''
                 }`}
               >
