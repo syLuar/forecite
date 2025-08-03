@@ -1,0 +1,384 @@
+"""
+Service layer for managing case files and argument drafts.
+
+This module provides high-level operations for creating, retrieving,
+and managing case files and their associated legal argument drafts.
+"""
+
+from typing import List, Optional, Dict, Any
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from app.core.database import get_db_context
+from app.models.database_models import CaseFile, CaseFileDocument, ArgumentDraft
+from app.models.schemas import (
+    CaseFile as CaseFileSchema,
+    CaseFileDocument as CaseFileDocumentSchema,
+    ArgumentDraftResponse,
+)
+from app.tools.neo4j_tools import get_chunk_by_id
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class CaseFileService:
+    """Service for managing case files and their documents."""
+
+    @staticmethod
+    def create_case_file(
+        title: str,
+        description: Optional[str] = None,
+        user_facts: Optional[str] = None,
+        legal_question: Optional[str] = None,
+    ) -> int:
+        """Create a new case file and return its ID."""
+        with get_db_context() as db:
+            case_file = CaseFile(
+                title=title,
+                description=description,
+                user_facts=user_facts,
+                legal_question=legal_question,
+            )
+            db.add(case_file)
+            db.flush()  # To get the ID
+            return case_file.id
+
+    @staticmethod
+    def enrich_case_file_with_chunks(case_file_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich case file documents with chunk content from Neo4j if missing.
+
+        This method helps populate chunk content for documents that were added
+        before the chunk content preservation feature was implemented.
+        """
+        try:
+            for document in case_file_data.get("documents", []):
+                # If selected_chunks is empty, try to fetch chunk content from Neo4j
+                if not document.get("selected_chunks"):
+                    document_id = document.get("document_id")
+                    if document_id:
+                        # Try to get chunk content from Neo4j using the document_id as chunk_id
+                        chunk_data = get_chunk_by_id(document_id)
+                        if chunk_data:
+                            document["selected_chunks"] = [
+                                {
+                                    "chunk_id": chunk_data.get("chunk_id"),
+                                    "text": chunk_data.get("text"),
+                                    "summary": chunk_data.get("summary"),
+                                    "statutes": chunk_data.get("statutes") or [],
+                                    "courts": chunk_data.get("courts") or [],
+                                    "cases": chunk_data.get("cases") or [],
+                                    "concepts": chunk_data.get("concepts") or [],
+                                    "judges": chunk_data.get("judges") or [],
+                                    "holdings": chunk_data.get("holdings") or [],
+                                    "facts": chunk_data.get("facts") or [],
+                                    "legal_tests": chunk_data.get("legal_tests") or [],
+                                }
+                            ]
+                            logger.info(
+                                f"Enriched document {document_id} with chunk content"
+                            )
+
+            return case_file_data
+
+        except Exception as e:
+            logger.warning(f"Failed to enrich case file with chunks: {e}")
+            return case_file_data
+
+    @staticmethod
+    def get_case_file(case_file_id: int) -> Optional[Dict[str, Any]]:
+        """Get a case file by ID with all its documents."""
+        with get_db_context() as db:
+            case_file = db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+            if not case_file:
+                return None
+
+            case_file_data = {
+                "id": case_file.id,
+                "title": case_file.title,
+                "description": case_file.description,
+                "user_facts": case_file.user_facts,
+                "legal_question": case_file.legal_question,
+                "created_at": case_file.created_at,
+                "updated_at": case_file.updated_at,
+                "documents": [
+                    {
+                        "id": doc.id,
+                        "document_id": doc.document_id,
+                        "citation": doc.citation,
+                        "title": doc.title,
+                        "year": doc.year,
+                        "jurisdiction": doc.jurisdiction,
+                        "relevance_score_percent": doc.relevance_score_percent,
+                        "key_holdings": doc.key_holdings or [],
+                        "selected_chunks": doc.selected_chunks or [],
+                        "user_notes": doc.user_notes,
+                        "added_at": doc.added_at,
+                    }
+                    for doc in case_file.documents
+                ],
+                "total_documents": len(case_file.documents),
+            }
+
+            # Enrich with chunk content if missing
+            return CaseFileService.enrich_case_file_with_chunks(case_file_data)
+
+    @staticmethod
+    def list_case_files() -> List[Dict[str, Any]]:
+        """List all case files with basic info."""
+        with get_db_context() as db:
+            case_files = db.query(CaseFile).order_by(desc(CaseFile.updated_at)).all()
+            return [
+                {
+                    "id": cf.id,
+                    "title": cf.title,
+                    "description": cf.description,
+                    "created_at": cf.created_at,
+                    "updated_at": cf.updated_at,
+                    "document_count": len(cf.documents),
+                    "draft_count": len(cf.drafts),
+                }
+                for cf in case_files
+            ]
+
+    @staticmethod
+    def update_case_file(
+        case_file_id: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        user_facts: Optional[str] = None,
+        legal_question: Optional[str] = None,
+    ) -> bool:
+        """Update case file details."""
+        with get_db_context() as db:
+            case_file = db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+            if not case_file:
+                return False
+
+            if title is not None:
+                case_file.title = title
+            if description is not None:
+                case_file.description = description
+            if user_facts is not None:
+                case_file.user_facts = user_facts
+            if legal_question is not None:
+                case_file.legal_question = legal_question
+
+            return True
+
+    @staticmethod
+    def delete_case_file(case_file_id: int) -> bool:
+        """Delete a case file and all associated data."""
+        with get_db_context() as db:
+            case_file = db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+            if not case_file:
+                return False
+
+            db.delete(case_file)
+            return True
+
+    @staticmethod
+    def add_document_to_case_file(
+        case_file_id: int, document_data: Dict[str, Any]
+    ) -> bool:
+        """Add a document to a case file."""
+        with get_db_context() as db:
+            # Check if case file exists
+            case_file = db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+            if not case_file:
+                return False
+
+            # Check if document already exists in this case file
+            existing = (
+                db.query(CaseFileDocument)
+                .filter(
+                    CaseFileDocument.case_file_id == case_file_id,
+                    CaseFileDocument.document_id == document_data["document_id"],
+                )
+                .first()
+            )
+
+            if existing:
+                return True  # Document already exists
+
+            document = CaseFileDocument(
+                case_file_id=case_file_id,
+                document_id=document_data["document_id"],
+                citation=document_data["citation"],
+                title=document_data["title"],
+                year=document_data.get("year"),
+                jurisdiction=document_data.get("jurisdiction"),
+                relevance_score_percent=document_data.get("relevance_score_percent"),
+                key_holdings=document_data.get("key_holdings", []),
+                selected_chunks=document_data.get("selected_chunks", []),
+                user_notes=document_data.get("user_notes"),
+            )
+            db.add(document)
+            return True
+
+    @staticmethod
+    def remove_document_from_case_file(case_file_id: int, document_id: str) -> bool:
+        """Remove a document from a case file."""
+        with get_db_context() as db:
+            document = (
+                db.query(CaseFileDocument)
+                .filter(
+                    CaseFileDocument.case_file_id == case_file_id,
+                    CaseFileDocument.document_id == document_id,
+                )
+                .first()
+            )
+
+            if not document:
+                return False
+
+            db.delete(document)
+            return True
+
+    @staticmethod
+    def get_document_from_case_file(
+        case_file_id: int, document_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a specific document from a case file with all its content."""
+        with get_db_context() as db:
+            document = (
+                db.query(CaseFileDocument)
+                .filter(
+                    CaseFileDocument.case_file_id == case_file_id,
+                    CaseFileDocument.document_id == document_id,
+                )
+                .first()
+            )
+
+            if not document:
+                return None
+
+            # Convert to dictionary and enrich with chunks if needed
+            document_data = {
+                "id": document.id,
+                "document_id": document.document_id,
+                "citation": document.citation,
+                "title": document.title,
+                "year": document.year,
+                "jurisdiction": document.jurisdiction,
+                "relevance_score_percent": document.relevance_score_percent,
+                "key_holdings": document.key_holdings or [],
+                "selected_chunks": document.selected_chunks or [],
+                "user_notes": document.user_notes,
+                "added_at": document.added_at,
+            }
+
+            # If no chunks, try to enrich from Neo4j
+            if not document_data["selected_chunks"]:
+                chunk_data = get_chunk_by_id(document_id)
+                if chunk_data:
+                    document_data["selected_chunks"] = [
+                        {
+                            "chunk_id": chunk_data.get("chunk_id"),
+                            "text": chunk_data.get("text"),
+                            "summary": chunk_data.get("summary"),
+                            "statutes": chunk_data.get("statutes") or [],
+                            "courts": chunk_data.get("courts") or [],
+                            "cases": chunk_data.get("cases") or [],
+                            "concepts": chunk_data.get("concepts") or [],
+                            "judges": chunk_data.get("judges") or [],
+                            "holdings": chunk_data.get("holdings") or [],
+                            "facts": chunk_data.get("facts") or [],
+                            "legal_tests": chunk_data.get("legal_tests") or [],
+                        }
+                    ]
+
+            return document_data
+
+
+class ArgumentDraftService:
+    """Service for managing argument drafts."""
+
+    @staticmethod
+    def save_draft(
+        case_file_id: int,
+        draft_response: ArgumentDraftResponse,
+        title: Optional[str] = None,
+    ) -> int:
+        """Save an argument draft and return its ID."""
+        with get_db_context() as db:
+            draft = ArgumentDraft(
+                case_file_id=case_file_id,
+                title=title
+                or f"Draft {db.query(ArgumentDraft).filter(ArgumentDraft.case_file_id == case_file_id).count() + 1}",
+                drafted_argument=draft_response.drafted_argument,
+                strategy=draft_response.strategy.dict()
+                if draft_response.strategy
+                else None,
+                argument_structure=draft_response.argument_structure,
+                citations_used=draft_response.citations_used,
+                argument_strength=draft_response.argument_strength,
+                precedent_coverage=draft_response.precedent_coverage,
+                logical_coherence=draft_response.logical_coherence,
+                total_critique_cycles=draft_response.total_critique_cycles,
+                execution_time=draft_response.execution_time,
+                revision_history=draft_response.revision_history,
+            )
+            db.add(draft)
+            db.flush()
+            return draft.id
+
+    @staticmethod
+    def get_draft(draft_id: int) -> Optional[Dict[str, Any]]:
+        """Get a draft by ID."""
+        with get_db_context() as db:
+            draft = db.query(ArgumentDraft).filter(ArgumentDraft.id == draft_id).first()
+            if not draft:
+                return None
+
+            return {
+                "id": draft.id,
+                "case_file_id": draft.case_file_id,
+                "title": draft.title,
+                "drafted_argument": draft.drafted_argument,
+                "strategy": draft.strategy,
+                "argument_structure": draft.argument_structure,
+                "citations_used": draft.citations_used,
+                "argument_strength": draft.argument_strength,
+                "precedent_coverage": draft.precedent_coverage,
+                "logical_coherence": draft.logical_coherence,
+                "total_critique_cycles": draft.total_critique_cycles,
+                "execution_time": draft.execution_time,
+                "revision_history": draft.revision_history,
+                "created_at": draft.created_at,
+            }
+
+    @staticmethod
+    def list_drafts_for_case_file(case_file_id: int) -> List[Dict[str, Any]]:
+        """List all drafts for a case file."""
+        with get_db_context() as db:
+            drafts = (
+                db.query(ArgumentDraft)
+                .filter(ArgumentDraft.case_file_id == case_file_id)
+                .order_by(desc(ArgumentDraft.created_at))
+                .all()
+            )
+
+            return [
+                {
+                    "id": draft.id,
+                    "title": draft.title,
+                    "created_at": draft.created_at,
+                    "argument_strength": draft.argument_strength,
+                    "precedent_coverage": draft.precedent_coverage,
+                    "logical_coherence": draft.logical_coherence,
+                }
+                for draft in drafts
+            ]
+
+    @staticmethod
+    def delete_draft(draft_id: int) -> bool:
+        """Delete a draft."""
+        with get_db_context() as db:
+            draft = db.query(ArgumentDraft).filter(ArgumentDraft.id == draft_id).first()
+            if not draft:
+                return False
+
+            db.delete(draft)
+            return True

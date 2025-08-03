@@ -186,3 +186,100 @@ class CitationNetwork(BaseModel):
     cited_by: List[Dict[str, Any]]
     cites: List[Dict[str, Any]]
     authority_chain: Optional[List[Dict[str, Any]]] = None
+
+
+# Case File Management Models
+class CreateCaseFileRequest(BaseModel):
+    """Request model for creating a new case file."""
+
+    title: str = Field(..., description="Title for the case file")
+    description: Optional[str] = Field(None, description="Optional description")
+    user_facts: Optional[str] = Field(None, description="Client's fact pattern")
+    legal_question: Optional[str] = Field(None, description="Legal question to address")
+
+
+class UpdateCaseFileRequest(BaseModel):
+    """Request model for updating a case file."""
+
+    title: Optional[str] = Field(None, description="Updated title")
+    description: Optional[str] = Field(None, description="Updated description")
+    user_facts: Optional[str] = Field(None, description="Updated fact pattern")
+    legal_question: Optional[str] = Field(None, description="Updated legal question")
+
+
+class CaseFileResponse(BaseModel):
+    """Response model for case file with documents."""
+
+    id: int
+    title: str
+    description: Optional[str] = None
+    user_facts: Optional[str] = None
+    legal_question: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    documents: List[Dict[str, Any]]
+    total_documents: int
+
+
+class CaseFileListItem(BaseModel):
+    """Model for case file list item."""
+
+    id: int
+    title: str
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    document_count: int
+    draft_count: int
+
+
+class AddDocumentToCaseFileRequest(BaseModel):
+    """Request model for adding a document to a case file."""
+
+    document_id: str
+    citation: str
+    title: str
+    year: Optional[int] = None
+    jurisdiction: Optional[str] = None
+    relevance_score_percent: Optional[float] = None
+    key_holdings: Optional[List[str]] = None
+    selected_chunks: Optional[List[Dict[str, Any]]] = None
+    user_notes: Optional[str] = None
+
+
+class SaveDraftRequest(BaseModel):
+    """Request model for saving an argument draft."""
+
+    case_file_id: int
+    title: Optional[str] = None
+    draft_response: ArgumentDraftResponse
+
+
+class ArgumentDraftListItem(BaseModel):
+    """Model for argument draft list item."""
+
+    id: int
+    title: str
+    created_at: datetime
+    argument_strength: Optional[float] = None
+    precedent_coverage: Optional[float] = None
+    logical_coherence: Optional[float] = None
+
+
+class SavedArgumentDraft(BaseModel):
+    """Model for a saved argument draft."""
+
+    id: int
+    case_file_id: int
+    title: str
+    drafted_argument: str
+    strategy: Optional[Dict[str, Any]] = None
+    argument_structure: Optional[Dict[str, Any]] = None
+    citations_used: Optional[List[str]] = None
+    argument_strength: Optional[float] = None
+    precedent_coverage: Optional[float] = None
+    logical_coherence: Optional[float] = None
+    total_critique_cycles: Optional[int] = None
+    execution_time: Optional[float] = None
+    revision_history: Optional[List[Dict[str, Any]]] = None
+    created_at: datetime
