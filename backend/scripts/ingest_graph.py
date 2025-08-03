@@ -31,6 +31,9 @@ import time
 import functools
 from contextlib import contextmanager
 import re
+import hashlib
+import pickle
+import json
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
@@ -54,6 +57,257 @@ from process_pdf import process_pdf_document
 
 # Load environment variables from .env file
 load_dotenv()
+
+
+class LLMCache:
+    """
+    Caches LLM results including embeddings, summaries, and entity extractions
+    to avoid regenerating them during development.
+    Uses SHA-256 hash of text content as cache keys for reliability.
+    """
+    
+    def __init__(self, cache_dir: Optional[str] = None):
+        """Initialize the LLM cache.
+        
+        Args:
+            cache_dir: Directory to store cache files. Defaults to cache/ in project root.
+        """
+        if cache_dir is None:
+            # Use cache directory in project root
+            project_root = Path(__file__).parent.parent.parent
+            cache_dir = project_root / "cache"
+        
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(exist_ok=True)
+        
+        # Separate files for different types of cached data
+        self.embeddings_file = self.cache_dir / "embeddings_cache.pkl"
+        self.summaries_file = self.cache_dir / "summaries_cache.pkl" 
+        self.entities_file = self.cache_dir / "entities_cache.pkl"
+        self.metadata_file = self.cache_dir / "cache_metadata.json"
+        
+        # Load existing caches
+        self.embeddings_cache = self._load_cache_file(self.embeddings_file, "embeddings")
+        self.summaries_cache = self._load_cache_file(self.summaries_file, "summaries")
+        self.entities_cache = self._load_cache_file(self.entities_file, "entities")
+        self.cache_metadata = self._load_cache_metadata()
+        
+        # Track cache stats for different operations
+        self.cache_stats = {
+            "embeddings": {"hits": 0, "misses": 0},
+            "summaries": {"hits": 0, "misses": 0}, 
+            "entities": {"hits": 0, "misses": 0}
+        }
+        
+        logger.info(f"📦 LLM cache initialized at {self.cache_dir}")
+        logger.info(f"📊 Cache contains:")
+        logger.info(f"   - {len(self.embeddings_cache)} embeddings")
+        logger.info(f"   - {len(self.summaries_cache)} summaries") 
+        logger.info(f"   - {len(self.entities_cache)} entity extractions")
+    
+    def _generate_cache_key(self, text: str) -> str:
+        """Generate a SHA-256 hash key for the given text."""
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
+    
+    def _load_cache_file(self, file_path: Path, cache_type: str) -> Dict[str, Any]:
+        """Load a specific cache file from disk."""
+        if file_path.exists():
+            try:
+                with open(file_path, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to load {cache_type} cache: {e}")
+                return {}
+        return {}
+    
+    def _load_cache_metadata(self) -> Dict[str, Any]:
+        """Load cache metadata from disk."""
+        if self.metadata_file.exists():
+            try:
+                with open(self.metadata_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to load cache metadata: {e}")
+                return {"version": "2.0", "created_at": time.time()}
+        return {"version": "2.0", "created_at": time.time()}
+    
+    def _save_cache(self):
+        """Save all caches to disk."""
+        try:
+            # Save embeddings
+            with open(self.embeddings_file, 'wb') as f:
+                pickle.dump(self.embeddings_cache, f)
+            
+            # Save summaries
+            with open(self.summaries_file, 'wb') as f:
+                pickle.dump(self.summaries_cache, f)
+                
+            # Save entities
+            with open(self.entities_file, 'wb') as f:
+                pickle.dump(self.entities_cache, f)
+            
+            # Update and save metadata
+            total_hits = sum(stats["hits"] for stats in self.cache_stats.values())
+            total_misses = sum(stats["misses"] for stats in self.cache_stats.values())
+            
+            self.cache_metadata.update({
+                "last_updated": time.time(),
+                "total_embeddings": len(self.embeddings_cache),
+                "total_summaries": len(self.summaries_cache),
+                "total_entities": len(self.entities_cache),
+                "cache_stats": self.cache_stats,
+                "total_hits": total_hits,
+                "total_misses": total_misses
+            })
+            
+            with open(self.metadata_file, 'w') as f:
+                json.dump(self.cache_metadata, f, indent=2)
+            
+            logger.debug(f"💾 Cache saved with {len(self.embeddings_cache)} embeddings, {len(self.summaries_cache)} summaries, {len(self.entities_cache)} entities")
+        except Exception as e:
+            logger.error(f"Failed to save cache: {e}")
+    
+    # Embedding methods
+    def get_embeddings(self, texts: List[str]) -> tuple[List[List[float]], List[str]]:
+        """
+        Get embeddings for texts, using cache when available.
+        
+        Returns:
+            tuple: (embeddings_list, uncached_texts)
+                - embeddings_list: List of embeddings (None for uncached texts)
+                - uncached_texts: List of texts that need to be embedded
+        """
+        embeddings = []
+        uncached_texts = []
+        
+        for text in texts:
+            cache_key = self._generate_cache_key(text)
+            
+            if cache_key in self.embeddings_cache:
+                embeddings.append(self.embeddings_cache[cache_key])
+                self.cache_stats["embeddings"]["hits"] += 1
+            else:
+                embeddings.append(None)  # Placeholder for uncached embedding
+                uncached_texts.append(text)
+                self.cache_stats["embeddings"]["misses"] += 1
+        
+        return embeddings, uncached_texts
+    
+    def store_embeddings(self, texts: List[str], embeddings: List[List[float]]):
+        """Store embeddings in cache."""
+        if len(texts) != len(embeddings):
+            logger.error(f"Mismatch: {len(texts)} texts vs {len(embeddings)} embeddings")
+            return
+        
+        for text, embedding in zip(texts, embeddings):
+            cache_key = self._generate_cache_key(text)
+            self.embeddings_cache[cache_key] = embedding
+        
+        # Save to disk
+        self._save_cache()
+    
+    # Summary methods
+    def get_summary(self, text: str) -> Optional[str]:
+        """Get cached summary for text, or None if not cached."""
+        cache_key = self._generate_cache_key(text)
+        
+        if cache_key in self.summaries_cache:
+            self.cache_stats["summaries"]["hits"] += 1
+            return self.summaries_cache[cache_key]
+        else:
+            self.cache_stats["summaries"]["misses"] += 1
+            return None
+    
+    def store_summary(self, text: str, summary: str):
+        """Store summary in cache."""
+        cache_key = self._generate_cache_key(text)
+        self.summaries_cache[cache_key] = summary
+        self._save_cache()
+    
+    # Entity extraction methods
+    def get_entities(self, text: str) -> Optional[Dict[str, List[str]]]:
+        """Get cached entity extraction for text, or None if not cached."""
+        cache_key = self._generate_cache_key(text)
+        
+        if cache_key in self.entities_cache:
+            self.cache_stats["entities"]["hits"] += 1
+            return self.entities_cache[cache_key]
+        else:
+            self.cache_stats["entities"]["misses"] += 1
+            return None
+    
+    def store_entities(self, text: str, entities: Dict[str, List[str]]):
+        """Store entity extraction results in cache."""
+        cache_key = self._generate_cache_key(text)
+        self.entities_cache[cache_key] = entities
+        self._save_cache()
+    
+    def clear_cache(self):
+        """Clear all cached data."""
+        self.embeddings_cache.clear()
+        self.summaries_cache.clear()
+        self.entities_cache.clear()
+        self.cache_stats = {
+            "embeddings": {"hits": 0, "misses": 0},
+            "summaries": {"hits": 0, "misses": 0}, 
+            "entities": {"hits": 0, "misses": 0}
+        }
+        self._save_cache()
+        logger.info("🗑️  Cache cleared")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache performance statistics."""
+        total_hits = sum(stats["hits"] for stats in self.cache_stats.values())
+        total_misses = sum(stats["misses"] for stats in self.cache_stats.values())
+        total_requests = total_hits + total_misses
+        overall_hit_rate = (total_hits / total_requests * 100) if total_requests > 0 else 0
+        
+        # Calculate individual hit rates
+        individual_rates = {}
+        for operation, stats in self.cache_stats.items():
+            operation_total = stats["hits"] + stats["misses"]
+            individual_rates[f"{operation}_hit_rate"] = (stats["hits"] / operation_total * 100) if operation_total > 0 else 0
+        
+        # Calculate cache file sizes
+        cache_sizes = {}
+        for cache_type, file_path in [
+            ("embeddings", self.embeddings_file),
+            ("summaries", self.summaries_file), 
+            ("entities", self.entities_file)
+        ]:
+            cache_sizes[f"{cache_type}_size_mb"] = round(file_path.stat().st_size / (1024 * 1024), 2) if file_path.exists() else 0
+        
+        return {
+            "total_cached_embeddings": len(self.embeddings_cache),
+            "total_cached_summaries": len(self.summaries_cache),
+            "total_cached_entities": len(self.entities_cache),
+            "cache_stats": self.cache_stats,
+            "overall_hit_rate_percent": round(overall_hit_rate, 2),
+            **individual_rates,
+            **cache_sizes
+        }
+    
+    def print_cache_stats(self):
+        """Print cache statistics."""
+        stats = self.get_cache_stats()
+        logger.info("📈 LLM CACHE STATISTICS")
+        logger.info("=" * 50)
+        logger.info(f"Total cached embeddings: {stats['total_cached_embeddings']}")
+        logger.info(f"Total cached summaries: {stats['total_cached_summaries']}")
+        logger.info(f"Total cached entities: {stats['total_cached_entities']}")
+        logger.info("")
+        logger.info("Hit rates by operation:")
+        logger.info(f"  Embeddings: {stats['embeddings_hit_rate']:.1f}% ({stats['cache_stats']['embeddings']['hits']}/{stats['cache_stats']['embeddings']['hits'] + stats['cache_stats']['embeddings']['misses']})")
+        logger.info(f"  Summaries: {stats['summaries_hit_rate']:.1f}% ({stats['cache_stats']['summaries']['hits']}/{stats['cache_stats']['summaries']['hits'] + stats['cache_stats']['summaries']['misses']})")
+        logger.info(f"  Entities: {stats['entities_hit_rate']:.1f}% ({stats['cache_stats']['entities']['hits']}/{stats['cache_stats']['entities']['hits'] + stats['cache_stats']['entities']['misses']})")
+        logger.info(f"  Overall: {stats['overall_hit_rate_percent']:.1f}%")
+        logger.info("")
+        logger.info("Cache file sizes:")
+        logger.info(f"  Embeddings: {stats['embeddings_size_mb']} MB")
+        logger.info(f"  Summaries: {stats['summaries_size_mb']} MB")
+        logger.info(f"  Entities: {stats['entities_size_mb']} MB")
+        logger.info("=" * 50)
+
 
 # Configure logging
 logging.basicConfig(
@@ -126,7 +380,7 @@ class PerformanceTracker:
         else:
             self.metrics[key] = value
 
-    def print_summary(self):
+    def print_summary(self, llm_cache: Optional[LLMCache] = None):
         """Print performance summary."""
         total_time = time.time() - self.metrics["total_start_time"]
 
@@ -153,6 +407,11 @@ class PerformanceTracker:
         )
         logger.info(f"  Database operations: {self.metrics['db_time']:.2f}s")
         logger.info("")
+
+        # Print LLM cache statistics if available
+        if llm_cache:
+            logger.info("")
+            llm_cache.print_cache_stats()
 
         if self.metrics["documents_processed"] > 0:
             avg_per_doc = total_time / self.metrics["documents_processed"]
@@ -237,7 +496,7 @@ class Neo4jConnection:
 class DocumentProcessor:
     """Handles document processing including chunking and embedding generation."""
 
-    def __init__(self):
+    def __init__(self, use_embedding_cache: bool = True):
         # Configure Google AI with API key
         _client = genai.Client(api_key=settings.google_api_key)
 
@@ -249,6 +508,10 @@ class DocumentProcessor:
 
         embeddings_attrs = settings.llm_config.get("embeddings", {})
         self.embeddings = GoogleGenerativeAIEmbeddings(**embeddings_attrs)
+
+        # Initialize embedding cache
+        self.use_cache = use_embedding_cache
+        self.llm_cache = LLMCache() if use_embedding_cache else None
 
         entity_extraction_attrs = settings.llm_config.get("ingestion", {}).get(
             "entity_extraction", {}
@@ -368,11 +631,40 @@ Filename: {filename}""",
         return documents
 
     async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts."""
+        """Generate embeddings for a list of texts with caching support."""
         try:
             start_time = time.time()
             logger.info(f"🔢 Generating embeddings for {len(texts)} texts...")
-            embeddings = await self.embeddings.aembed_documents(texts)
+            
+            if self.use_cache and self.llm_cache:
+                # Check cache first
+                cached_embeddings, uncached_texts = self.llm_cache.get_embeddings(texts)
+                
+                if uncached_texts:
+                    logger.info(f"📦 Cache hit for {len(texts) - len(uncached_texts)}/{len(texts)} texts")
+                    logger.info(f"🔢 Generating {len(uncached_texts)} new embeddings...")
+                    
+                    # Generate embeddings only for uncached texts
+                    new_embeddings = await self.embeddings.aembed_documents(uncached_texts)
+                    
+                    # Store new embeddings in cache
+                    self.llm_cache.store_embeddings(uncached_texts, new_embeddings)
+                    
+                    # Merge cached and new embeddings
+                    embeddings = []
+                    new_embedding_iter = iter(new_embeddings)
+                    
+                    for cached_embedding in cached_embeddings:
+                        if cached_embedding is None:
+                            embeddings.append(next(new_embedding_iter))
+                        else:
+                            embeddings.append(cached_embedding)
+                else:
+                    logger.info(f"📦 All embeddings found in cache!")
+                    embeddings = [emb for emb in cached_embeddings if emb is not None]
+            else:
+                # No caching - generate all embeddings
+                embeddings = await self.embeddings.aembed_documents(texts)
 
             embedding_time = time.time() - start_time
             perf_tracker.record_metric("embedding_time", embedding_time)
@@ -385,8 +677,15 @@ Filename: {filename}""",
             return []
 
     async def generate_summary(self, text: str) -> str:
-        """Generate a summary of the text using LLM."""
+        """Generate a summary of the text using LLM with caching support."""
         try:
+            # Check cache first
+            if self.use_cache and self.llm_cache:
+                cached_summary = self.llm_cache.get_summary(text)
+                if cached_summary:
+                    logger.debug("📦 Summary found in cache")
+                    return cached_summary
+            
             start_time = time.time()
 
             prompt = f"""
@@ -405,21 +704,32 @@ Filename: {filename}""",
             response = await self.summary_generation_llm.ainvoke(prompt)
             summary = (
                 response.content if hasattr(response, "content") else str(response)
-            )
+            ).strip()
 
             summary_time = time.time() - start_time
             perf_tracker.record_metric("summary_generation_time", summary_time)
             perf_tracker.record_metric("llm_time", summary_time)
             perf_tracker.record_metric("llm_calls", 1)
 
-            return summary.strip()
+            # Store in cache
+            if self.use_cache and self.llm_cache:
+                self.llm_cache.store_summary(text, summary)
+
+            return summary
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
             return "Summary generation failed"
 
     async def extract_entities(self, text: str) -> Dict[str, List[str]]:
-        """Extract legal entities from the text using structured output."""
+        """Extract legal entities from the text using structured output with caching support."""
         try:
+            # Check cache first
+            if self.use_cache and self.llm_cache:
+                cached_entities = self.llm_cache.get_entities(text)
+                if cached_entities:
+                    logger.debug("📦 Entities found in cache")
+                    return cached_entities
+            
             start_time = time.time()
 
             # Use the structured output chain
@@ -443,6 +753,10 @@ Filename: {filename}""",
                         for item in entities_dict[key]
                         if item and str(item).strip()
                     ]
+
+            # Store in cache
+            if self.use_cache and self.llm_cache:
+                self.llm_cache.store_entities(text, entities_dict)
 
             return entities_dict
 
@@ -494,9 +808,9 @@ Filename: {filename}""",
 class GraphBuilder:
     """Builds and populates the Neo4j knowledge graph."""
 
-    def __init__(self, neo4j_conn: Neo4jConnection):
+    def __init__(self, neo4j_conn: Neo4jConnection, use_embedding_cache: bool = True):
         self.neo4j = neo4j_conn
-        self.processor = DocumentProcessor()
+        self.processor = DocumentProcessor(use_embedding_cache=use_embedding_cache)
 
     def setup_database_schema(self):
         """Create constraints, indexes, and vector index in Neo4j."""
@@ -1181,8 +1495,18 @@ async def main():
     parser.add_argument(
         "--docs-dir",
         type=str,
-        default="data/raw_docs",
+        default="../data/raw_docs",
         help="Directory containing PDF documents to ingest",
+    )
+    parser.add_argument(
+        "--no-cache", 
+        action="store_true", 
+        help="Disable embedding cache (regenerate all embeddings)"
+    )
+    parser.add_argument(
+        "--clear-cache", 
+        action="store_true", 
+        help="Clear the embedding cache before starting"
     )
 
     args = parser.parse_args()
@@ -1205,8 +1529,14 @@ async def main():
         logger.error(f"❌ Failed to connect to Neo4j: {e}")
         sys.exit(1)
 
-    # Initialize graph builder
-    graph_builder = GraphBuilder(neo4j_conn)
+    # Initialize graph builder with caching options
+    use_cache = not args.no_cache
+    graph_builder = GraphBuilder(neo4j_conn, use_embedding_cache=use_cache)
+    
+    # Handle cache management
+    if use_cache and args.clear_cache:
+        logger.info("🗑️  Clearing LLM cache...")
+        graph_builder.processor.llm_cache.clear_cache()
 
     # Reset database if requested
     if args.reset:
@@ -1258,7 +1588,8 @@ async def main():
     )
 
     # Print performance summary
-    perf_tracker.print_summary()
+    llm_cache = graph_builder.processor.llm_cache if use_cache else None
+    perf_tracker.print_summary(llm_cache)
 
     # Close connection
     neo4j_conn.close()
