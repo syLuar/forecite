@@ -2,6 +2,160 @@
 
 This implementation provides the complete agent teams as specified in the architecture documentation. The system uses LangGraph to create dynamic, self-correcting workflows for legal research and argument drafting.
 
+## Installation Guide
+
+### Prerequisites
+
+Before setting up the backend, ensure you have the following installed:
+
+- **Python 3.11 or higher** (3.13 recommended)
+- **Git** for cloning the repository
+- **Access to Neo4j Database** (hosted on VPS)
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/syLuar/forecite.git
+cd forecite/backend
+```
+
+### 2. Python Environment Setup
+
+Create and activate a virtual environment:
+
+```bash
+# Using venv
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Or using conda
+conda create -n forecite python=3.13
+conda activate forecite
+```
+
+### 3. Install Dependencies
+
+Install all required Python packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Environment Configuration
+
+1. **Copy environment template:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Configure environment variables in `.env`:**
+
+   ```bash
+   # LLM Configuration
+   LLM_CONFIG_PATH=./llm_config.yaml
+   
+   # Google Gemini Configuration (Required)
+   GOOGLE_API_KEY=your_google_api_key_here
+   GEMINI_MODEL=gemini-2.5-flash-lite
+   
+   # LangSmith Configuration (Optional - for debugging)
+   LANGSMITH_TRACING=true
+   LANGSMITH_API_KEY=your_langsmith_api_key_here
+   LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+   LANGSMITH_PROJECT="forecite"
+   
+   # Neo4j Configuration (VPS Hosted)
+   NEO4J_URI=bolt://your_vps_ip:7687
+   NEO4J_USERNAME=neo4j
+   NEO4J_PASSWORD=your_neo4j_password_here
+   NEO4J_DATABASE=neo4j
+   
+   # Vector Index Configuration
+   VECTOR_INDEX_NAME=chunk_embeddings
+   ```
+
+### 6. API Keys Setup
+
+#### Google Gemini API Key (Required)
+
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Create a new API key
+3. Add it to your `.env` file as `GOOGLE_API_KEY`
+
+#### LangSmith API Key (Optional)
+
+1. Sign up at [LangSmith](https://smith.langchain.com/)
+2. Generate an API key from your settings
+3. Add it to your `.env` file as `LANGSMITH_API_KEY`
+
+### 6. Database Initialization
+
+Initialize the knowledge graph with legal documents:
+
+```bash
+# Process and ingest legal documents
+python scripts/ingest_graph.py
+
+# Optional: Scrape Singapore case law (takes time)
+python scripts/scrape_singapore_cases.py
+```
+
+### 7. Start the Application
+
+Run the FastAPI development server:
+
+```bash
+# Development mode with auto-reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Production mode
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+The backend will be available at:
+- **API Base URL:** `http://localhost:8000`
+- **Interactive API Documentation:** `http://localhost:8000/docs`
+- **OpenAPI Schema:** `http://localhost:8000/redoc`
+
+### 8. Verify Installation
+
+Test the API endpoints:
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# Test research endpoint
+curl -X POST "http://localhost:8000/api/v1/research/query" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "negligence duty of care Singapore", "max_results": 5}'
+```
+
+#### Logs and Debugging:
+
+- Application logs: Check console output when running uvicorn
+- Neo4j logs: Available on your VPS Neo4j instance
+- Enable LangSmith tracing for detailed LLM interaction logs
+
+### Development Setup
+
+For development work:
+
+```bash
+# Install development dependencies
+pip install pytest pytest-asyncio black isort mypy
+
+# Run tests
+pytest
+
+# Format code
+black .
+isort .
+
+# Type checking
+mypy .
+```
+
 ## Implementation Overview
 
 ### 1. State Management (`app/graphs/state.py`)
