@@ -5,12 +5,18 @@ Reads environment variables and provides typed configuration objects.
 
 import os
 from typing import Optional
+from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings
+import yaml
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+
+    # Model Configuration
+    llm_config_path: str = Field("./llm_config.yaml", env="LLM_CONFIG_PATH")
+    llm_config: Optional[dict] = None
 
     # Google Gemini Configuration
     google_api_key: str = Field(..., env="GOOGLE_API_KEY")
@@ -30,9 +36,6 @@ class Settings(BaseSettings):
 
     # Vector Index Configuration
     vector_index_name: str = Field("chunk_embeddings", env="VECTOR_INDEX_NAME")
-    embedding_dimension: int = Field(
-        768, env="EMBEDDING_DIMENSION"
-    )  # Google text-embedding-004 dimension
 
     # Document Processing Configuration
     chunk_size: int = Field(1000, env="CHUNK_SIZE")
@@ -41,6 +44,14 @@ class Settings(BaseSettings):
     # Application Configuration
     api_version: str = Field("v1", env="API_VERSION")
     debug: bool = Field(False, env="DEBUG")
+
+    def model_post_init(self, __context):
+        self.llm_config = self._load_config(self.llm_config_path)
+
+    def _load_config(self, path: Path) -> dict:
+        """Load configuration from a YAML file."""
+        with open(path, "r") as file:
+            return yaml.safe_load(file)
 
     class Config:
         env_file = ".env"

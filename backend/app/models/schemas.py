@@ -1,0 +1,188 @@
+"""
+Pydantic models for API request/response validation.
+
+This module defines the strict data contracts for the FastAPI endpoints,
+ensuring type safety and clear communication with the frontend.
+"""
+
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+
+
+# Research API Models
+class ResearchQueryRequest(BaseModel):
+    """Request model for research query endpoint."""
+
+    query_text: str = Field(..., description="The legal research query")
+    jurisdiction: Optional[str] = Field(
+        None, description="Preferred jurisdiction filter"
+    )
+    document_type: Optional[str] = Field(
+        None, description="Document type filter (Case, Doctrine, etc.)"
+    )
+    date_range: Optional[Dict[str, int]] = Field(
+        None, description="Year range filter with 'from' and 'to' keys"
+    )
+    max_results: Optional[int] = Field(
+        15, description="Maximum number of results to return"
+    )
+
+
+class RetrievedDocument(BaseModel):
+    """Model for a retrieved document/chunk."""
+
+    chunk_id: Optional[str] = None
+    text: str
+    summary: Optional[str] = None
+    document_source: str
+    document_citation: Optional[str] = None
+    document_year: Optional[int] = None
+    jurisdiction: Optional[str] = None
+    document_type: Optional[str] = None
+    court_level: Optional[str] = None
+    score: Optional[float] = None
+    statutes: Optional[List[str]] = None
+    courts: Optional[List[str]] = None
+    cases: Optional[List[str]] = None
+    concepts: Optional[List[str]] = None
+    judges: Optional[List[str]] = None
+    holdings: Optional[List[str]] = None
+    facts: Optional[List[str]] = None
+    legal_tests: Optional[List[str]] = None
+
+
+class ResearchQueryResponse(BaseModel):
+    """Response model for research query endpoint."""
+
+    retrieved_docs: List[RetrievedDocument]
+    total_results: int
+    search_quality_score: Optional[float] = None
+    refinement_count: int = 0
+    assessment_reason: Optional[str] = None
+    execution_time: Optional[float] = None
+    search_history: Optional[List[Dict[str, Any]]] = None
+
+
+# Drafting API Models
+class CaseFileDocument(BaseModel):
+    """Model for documents in the user's case file."""
+
+    document_id: str
+    citation: str
+    title: str
+    year: int
+    jurisdiction: str
+    relevance_score_percent: float = Field(..., ge=0.0, le=100.0)
+    key_holdings: List[str]
+    selected_chunks: List[Dict[str, Any]] = []
+    user_notes: Optional[str] = None
+
+
+class CaseFile(BaseModel):
+    """Model for the user's case file."""
+
+    documents: List[CaseFileDocument]
+    total_documents: int
+    created_at: Optional[datetime] = None
+    last_modified: Optional[datetime] = None
+
+
+class ArgumentDraftRequest(BaseModel):
+    """Request model for argument drafting endpoint."""
+
+    user_facts: str = Field(..., description="The client's fact pattern")
+    case_file: CaseFile = Field(..., description="Selected precedents and research")
+    legal_question: Optional[str] = Field(
+        None, description="Specific legal question to address"
+    )
+    argument_preferences: Optional[Dict[str, Any]] = Field(
+        None, description="User preferences for argument style/approach"
+    )
+
+
+class LegalArgument(BaseModel):
+    """Model for a legal argument component."""
+
+    argument: str
+    supporting_authority: str
+    factual_basis: str
+    strength_assessment: Optional[float] = None
+
+
+class ArgumentStrategy(BaseModel):
+    """Model for legal argument strategy."""
+
+    main_thesis: str
+    argument_type: str  # analogical, precedential, policy, textual
+    primary_precedents: List[str]
+    legal_framework: str
+    key_arguments: List[LegalArgument]
+    anticipated_counterarguments: List[str]
+    counterargument_responses: List[str]
+    strength_assessment: float = Field(..., ge=0.0, le=1.0)
+    risk_factors: List[str]
+    strategy_rationale: str
+
+
+class ArgumentDraftResponse(BaseModel):
+    """Response model for argument drafting endpoint."""
+
+    strategy: ArgumentStrategy
+    drafted_argument: str
+    argument_structure: Dict[str, Any]
+    citations_used: List[str]
+    argument_strength: float = Field(..., ge=0.0, le=1.0)
+    precedent_coverage: float = Field(..., ge=0.0, le=1.0)
+    logical_coherence: float = Field(..., ge=0.0, le=1.0)
+    total_critique_cycles: int
+    revision_history: Optional[List[Dict[str, Any]]] = None
+    execution_time: Optional[float] = None
+
+
+# Utility Models
+class ErrorResponse(BaseModel):
+    """Standard error response model."""
+
+    error: str
+    detail: Optional[str] = None
+    error_code: Optional[str] = None
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+
+    status: str
+    timestamp: datetime
+    version: Optional[str] = None
+
+
+# Additional Analysis Models
+class PrecedentAnalysis(BaseModel):
+    """Model for precedent strength analysis."""
+
+    case_citation: str
+    total_citations: int
+    precedent_strength: float
+    avg_authority_weight: Optional[float] = None
+    citing_jurisdictions: List[str]
+    most_recent_citation: Optional[int] = None
+    earliest_citation: Optional[int] = None
+
+
+class ConceptAnalysis(BaseModel):
+    """Model for legal concept analysis."""
+
+    concept_name: str
+    related_documents: List[Dict[str, Any]]
+    evolution_timeline: Optional[List[Dict[str, Any]]] = None
+    jurisdiction_coverage: List[str]
+
+
+class CitationNetwork(BaseModel):
+    """Model for citation network analysis."""
+
+    source_case: str
+    cited_by: List[Dict[str, Any]]
+    cites: List[Dict[str, Any]]
+    authority_chain: Optional[List[Dict[str, Any]]] = None

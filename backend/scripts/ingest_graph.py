@@ -30,6 +30,7 @@ import asyncio
 import time
 import functools
 from contextlib import contextmanager
+import re
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
@@ -39,7 +40,10 @@ from neo4j import GraphDatabase
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.schema import Document
+from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.prompts import PromptTemplate
 from google import genai
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
@@ -56,6 +60,43 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+# Pydantic schemas for structured output
+class LegalEntities(BaseModel):
+    """Schema for extracting legal entities from text."""
+
+    cases: List[str] = Field(
+        description="List of case names and citations (include year if available)"
+    )
+    statutes: List[str] = Field(description="List of statute references with sections")
+    concepts: List[str] = Field(description="List of key legal concepts and principles")
+    courts: List[str] = Field(description="List of court names")
+    judges: List[str] = Field(description="List of judge names mentioned")
+    holdings: List[str] = Field(
+        description="List of key legal holdings or ratio decidendi"
+    )
+    facts: List[str] = Field(description="List of key factual elements")
+    legal_tests: List[str] = Field(
+        description="List of legal tests or standards mentioned"
+    )
+
+
+class DocumentMetadata(BaseModel):
+    """Schema for extracting document metadata."""
+
+    jurisdiction: str = Field(
+        description="Jurisdiction such as Singapore, UK, US, etc."
+    )
+    court_level: str = Field(
+        description="Court level such as Supreme Court, High Court, District Court, etc."
+    )
+    parties: List[str] = Field(
+        description="List of party names (plaintiff, defendant, appellant, respondent)"
+    )
+    legal_areas: List[str] = Field(
+        description="List of areas of law (contract, tort, criminal, etc.)"
+    )
 
 
 class PerformanceTracker:
@@ -198,21 +239,78 @@ class DocumentProcessor:
 
     def __init__(self):
         # Configure Google AI with API key
-        client = genai.Client(api_key=settings.google_api_key)
+        _client = genai.Client(api_key=settings.google_api_key)
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="gemini-embedding-001", google_api_key=settings.google_api_key
+
+        embeddings_attrs = settings.llm_config.get("embeddings", {})
+        self.embeddings = GoogleGenerativeAIEmbeddings(**embeddings_attrs)
+
+        entity_extraction_attrs = settings.llm_config.get("ingestion", {}).get(
+            "entity_extraction", {}
         )
-        self.llm = ChatGoogleGenerativeAI(
-            model=settings.gemini_model,
-            google_api_key=settings.google_api_key,
-            thinking_budget=0,
-            temperature=0.2,
+        self.entity_extraction_llm = ChatGoogleGenerativeAI(
+            google_api_key=settings.google_api_key, **entity_extraction_attrs
+        )
+
+        summary_generation_attrs = settings.llm_config.get("ingestion", {}).get(
+            "summary_generation", {}
+        )
+        self.summary_generation_llm = ChatGoogleGenerativeAI(
+            google_api_key=settings.google_api_key, **summary_generation_attrs
+        )
+
+        metadata_extraction_attrs = settings.llm_config.get("ingestion", {}).get(
+            "metadata_extraction", {}
+        )
+        self.metadata_extraction_llm = ChatGoogleGenerativeAI(
+            google_api_key=settings.google_api_key, **metadata_extraction_attrs
+        )
+
+        # Set up structured output parsers and chains
+        self.entity_parser = PydanticOutputParser(pydantic_object=LegalEntities)
+        self.metadata_parser = PydanticOutputParser(pydantic_object=DocumentMetadata)
+
+        # Create entity extraction chain
+        entity_prompt = PromptTemplate(
+            template="""Extract the following legal entities from the text:
+
+{format_instructions}
+
+Text: {text}""",
+            input_variables=["text"],
+            partial_variables={
+                "format_instructions": self.entity_parser.get_format_instructions()
+            },
+        )
+        self.entity_extraction_chain = (
+            entity_prompt | self.entity_extraction_llm | self.entity_parser
+        )
+
+        # Create metadata extraction chain
+        metadata_prompt = PromptTemplate(
+            template="""Extract metadata from this legal document:
+
+{format_instructions}
+
+Document text (first 2000 chars): 
+{text_start}
+
+Document text (last 2000 chars): 
+{text_end}
+
+Filename: {filename}""",
+            input_variables=["text_start", "text_end", "filename"],
+            partial_variables={
+                "format_instructions": self.metadata_parser.get_format_instructions()
+            },
+        )
+        self.metadata_extraction_chain = (
+            metadata_prompt | self.metadata_extraction_llm | self.metadata_parser
         )
 
     def extract_text_from_pdf(self, pdf_path: Path) -> str:
@@ -304,7 +402,7 @@ class DocumentProcessor:
             Summary:
             """
 
-            response = await self.llm.ainvoke(prompt)
+            response = await self.summary_generation_llm.ainvoke(prompt)
             summary = (
                 response.content if hasattr(response, "content") else str(response)
             )
@@ -320,29 +418,13 @@ class DocumentProcessor:
             return "Summary generation failed"
 
     async def extract_entities(self, text: str) -> Dict[str, List[str]]:
-        """Extract legal entities from the text using LLM."""
+        """Extract legal entities from the text using structured output."""
         try:
             start_time = time.time()
 
-            prompt = f"""
-            Extract the following legal entities from the text and format as JSON:
-            - cases: List of case names and citations (include year if available)
-            - statutes: List of statute references with sections
-            - concepts: List of key legal concepts and principles
-            - courts: List of court names
-            - judges: List of judge names mentioned
-            - holdings: List of key legal holdings or ratio decidendi
-            - facts: List of key factual elements
-            - legal_tests: List of legal tests or standards mentioned
-            
-            Text: {text[:1500]}...
-            
-            Return only valid JSON with the eight keys above.
-            """
-
-            response = await self.llm.ainvoke(prompt)
-            response_text = (
-                response.content if hasattr(response, "content") else str(response)
+            # Use the structured output chain
+            entities = await self.entity_extraction_chain.ainvoke(
+                {"text": text[:1500] + "..." if len(text) > 1500 else text}
             )
 
             entity_time = time.time() - start_time
@@ -350,94 +432,23 @@ class DocumentProcessor:
             perf_tracker.record_metric("llm_time", entity_time)
             perf_tracker.record_metric("llm_calls", 1)
 
-            # Initialize default entities
-            entities = {
-                "cases": [],
-                "statutes": [],
-                "concepts": [],
-                "courts": [],
-                "judges": [],
-                "holdings": [],
-                "facts": [],
-                "legal_tests": [],
-            }
+            # Convert Pydantic model to dictionary with cleaned values
+            entities_dict = entities.model_dump()
 
-            # Try to parse JSON response first
-            import json
-            import re
+            # Clean and filter the entities
+            for key in entities_dict:
+                if isinstance(entities_dict[key], list):
+                    entities_dict[key] = [
+                        str(item).strip()
+                        for item in entities_dict[key]
+                        if item and str(item).strip()
+                    ]
 
-            try:
-                # Try to extract JSON from the response
-                json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                    parsed_entities = json.loads(json_str)
+            return entities_dict
 
-                    # Ensure all values are lists of strings
-                    for key in entities.keys():
-                        if key in parsed_entities and isinstance(
-                            parsed_entities[key], list
-                        ):
-                            # Clean and filter the entities
-                            entities[key] = [
-                                str(item).strip()
-                                for item in parsed_entities[key]
-                                if item and str(item).strip()
-                            ]
-
-                    return entities
-            except (json.JSONDecodeError, AttributeError):
-                logger.warning(
-                    "Failed to parse JSON response, falling back to simple extraction"
-                )
-
-            # Fallback: Simple entity extraction (replace with more sophisticated NER in production)
-            lines = response_text.split("\n")
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-
-                if "v." in line or "vs." in line or "[" in line and "]" in line:
-                    entities["cases"].append(line)
-                elif any(
-                    keyword in line.lower()
-                    for keyword in ["§", "section", "code", "statute", "act"]
-                ):
-                    entities["statutes"].append(line)
-                elif any(
-                    keyword in line.lower()
-                    for keyword in ["court", "tribunal", "appeal"]
-                ):
-                    entities["courts"].append(line)
-                elif any(
-                    keyword in line.lower() for keyword in ["j.", "judge", "justice"]
-                ):
-                    entities["judges"].append(line)
-                elif any(
-                    keyword in line.lower() for keyword in ["held", "holding", "ratio"]
-                ):
-                    entities["holdings"].append(line)
-                elif any(
-                    keyword in line.lower()
-                    for keyword in ["test", "standard", "criteria"]
-                ):
-                    entities["legal_tests"].append(line)
-                elif len(line) > 10 and not any(
-                    c in line for c in [":", "{", "}", "[", "]"]
-                ):
-                    # Potential legal concept or fact
-                    if any(
-                        keyword in line.lower()
-                        for keyword in ["principle", "doctrine", "rule"]
-                    ):
-                        entities["concepts"].append(line)
-                    else:
-                        entities["facts"].append(line)
-
-            return entities
         except Exception as e:
-            logger.error(f"Error extracting entities: {e}")
+            logger.error(f"Error extracting entities with structured output: {e}")
+            # Return default empty structure
             return {
                 "cases": [],
                 "statutes": [],
@@ -449,6 +460,36 @@ class DocumentProcessor:
                 "legal_tests": [],
             }
 
+    def extract_chunk_references(self, text: str) -> List[str]:
+        """
+        Extract cross-references to other chunks/paragraphs within the same document.
+
+        Sample pattern to match: see [109] above
+        """
+
+        references = set()
+        matches = re.finditer(r"see\s*\[(\d+)\] above", text, re.IGNORECASE)
+        for match in matches:
+            paragraph_num = match.group(1)
+            references.add(paragraph_num)
+
+        return list(references)
+
+    def extract_paragraph_numbers(self, text: str) -> List[str]:
+        """
+        Extract paragraph numbers present in this chunk.
+
+        Pattern to match: paragraph numbers at the start of lines
+        """
+        paragraph_numbers = set()
+        # Look for pattern like ".\n123 " where 123 is a paragraph number
+        matches = re.finditer(r"\.\n(\d+)\s", text)
+        for match in matches:
+            paragraph_num = match.group(1)
+            paragraph_numbers.add(paragraph_num)
+
+        return list(paragraph_numbers)
+
 
 class GraphBuilder:
     """Builds and populates the Neo4j knowledge graph."""
@@ -456,85 +497,6 @@ class GraphBuilder:
     def __init__(self, neo4j_conn: Neo4jConnection):
         self.neo4j = neo4j_conn
         self.processor = DocumentProcessor()
-        self._vector_search_available = None
-
-    def check_vector_search_availability(self) -> bool:
-        """Check if vector search procedures are available in the Neo4j instance."""
-        if self._vector_search_available is not None:
-            return self._vector_search_available
-
-        try:
-            # Try to list available procedures to check for vector support
-            result = self.neo4j.execute_query(
-                "CALL dbms.procedures() YIELD name WHERE name CONTAINS 'vector' RETURN name"
-            )
-            vector_procedures = [record["name"] for record in result.records]
-            self._vector_search_available = any(
-                "vector" in proc for proc in vector_procedures
-            )
-
-            if self._vector_search_available:
-                logger.info("✅ Vector search procedures are available")
-            else:
-                logger.warning("⚠️  Vector search procedures not available")
-
-            return self._vector_search_available
-        except Exception as e:
-            logger.warning(f"Could not check vector search availability: {e}")
-            self._vector_search_available = False
-            return False
-
-    def manual_vector_similarity_search(
-        self, query_embedding: List[float], limit: int = 10
-    ) -> List[Dict]:
-        """
-        Perform manual vector similarity search when vector indexes are not available.
-        This is slower than native vector search but provides fallback functionality.
-        """
-        if self._vector_search_available:
-            logger.info(
-                "Vector search is available - consider using native vector search instead"
-            )
-
-        logger.info(f"🔍 Performing manual similarity search for {limit} results")
-
-        # This query computes cosine similarity manually using the stored embeddings
-        # Note: This will be slower than native vector search
-        manual_search_query = """
-        MATCH (c:Chunk)
-        WHERE c.embedding IS NOT NULL
-        WITH c, 
-             reduce(dot = 0.0, i IN range(0, size($query_embedding)-1) | 
-                 dot + ($query_embedding[i] * c.embedding[i])
-             ) AS dot_product,
-             sqrt(reduce(norm_a = 0.0, i IN range(0, size($query_embedding)-1) | 
-                 norm_a + ($query_embedding[i] * $query_embedding[i])
-             )) AS norm_a,
-             sqrt(reduce(norm_b = 0.0, i IN range(0, size(c.embedding)-1) | 
-                 norm_b + (c.embedding[i] * c.embedding[i])
-             )) AS norm_b
-        WITH c, 
-             CASE 
-                 WHEN norm_a > 0 AND norm_b > 0 
-                 THEN dot_product / (norm_a * norm_b)
-                 ELSE 0.0 
-             END AS similarity
-        WHERE similarity > 0.7
-        RETURN c.id as chunk_id, c.text as text, c.summary as summary, 
-               c.source as source, similarity
-        ORDER BY similarity DESC
-        LIMIT $limit
-        """
-
-        try:
-            result = self.neo4j.execute_query(
-                manual_search_query,
-                {"query_embedding": query_embedding, "limit": limit},
-            )
-            return [dict(record) for record in result.records]
-        except Exception as e:
-            logger.error(f"Manual vector search failed: {e}")
-            return []
 
     def setup_database_schema(self):
         """Create constraints, indexes, and vector index in Neo4j."""
@@ -602,23 +564,20 @@ class GraphBuilder:
         except Exception as e:
             logger.warning(f"Chunk fulltext index already exists or error: {e}")
 
-        # Create vector index (only available in Neo4j Enterprise or with APOC plugin)
-        if self.check_vector_search_availability():
-            vector_index_query = f"""
-            CALL db.index.vector.createNodeIndex(
-                '{settings.vector_index_name}',
-                'Chunk',
-                'embedding',
-                {settings.embedding_dimension},
-                'cosine'
-            )
-            """
-
-            try:
-                self.neo4j.execute_query(vector_index_query)
-                logger.info(f"Created vector index: {settings.vector_index_name}")
-            except Exception as e:
-                logger.warning(f"Vector index creation failed: {e}")
+        embedding_dimension = settings.model_config.get("embeddings", {}).get(
+            "dimension", 3072
+        )
+        vector_index_query = f"""
+        CREATE VECTOR INDEX {settings.vector_index_name} IF NOT EXISTS
+        FOR (c:Chunk) ON (c.embedding)
+        OPTIONS {{
+            indexConfig: {{
+                `vector.dimensions`: {embedding_dimension},
+                `vector.similarity_function`: 'cosine'
+            }}
+        }}
+        """
+        self.neo4j.execute_query(vector_index_query)
 
     def reset_database(self):
         """Clear all data from the database."""
@@ -631,25 +590,12 @@ class GraphBuilder:
         except Exception as e:
             logger.error(f"Failed to clear nodes and relationships: {e}")
 
-        # Try to drop vector index if available
-        if self.check_vector_search_availability():
-            try:
-                self.neo4j.execute_query(
-                    f"CALL db.index.vector.drop('{settings.vector_index_name}') YIELD name RETURN name"
-                )
-                logger.info(
-                    f"Successfully dropped vector index: {settings.vector_index_name}"
-                )
-            except Exception as e:
-                logger.info(f"Vector index drop failed (might be expected): {e}")
-        else:
-            logger.info("Skipping vector index drop - procedures not available")
+        self.neo4j.execute_query(f"DROP INDEX {settings.vector_index_name}")
 
-        # Try to drop any existing indexes manually
         try:
             # List and drop any existing indexes
             result = self.neo4j.execute_query("SHOW INDEXES YIELD name, type")
-            for record in result.records:
+            for record in result:
                 index_name = record["name"]
                 index_type = record["type"]
                 if index_name == settings.vector_index_name:
@@ -715,6 +661,10 @@ class GraphBuilder:
         chunks = self.processor.chunk_document(text, str(pdf_path.name))
         logger.info(f"📄 Created {len(chunks)} chunks for {pdf_path.name}")
 
+        # Track references and paragraph mappings for later relationship creation
+        chunk_references_map = {}  # chunk_id -> list of referenced paragraph numbers
+        paragraph_to_chunk_map = {}  # paragraph_number -> chunk_id
+
         # Process chunks in batches
         batch_size = 5
         tasks = []
@@ -723,9 +673,21 @@ class GraphBuilder:
             logger.info(
                 f"⚙️  Processing chunk batch {i // batch_size + 1}/{(len(chunks) + batch_size - 1) // batch_size}"
             )
-            tasks.append(self._process_chunk_batch(batch, str(pdf_path.name)))
+            tasks.append(
+                self._process_chunk_batch(
+                    batch,
+                    str(pdf_path.name),
+                    chunk_references_map,
+                    paragraph_to_chunk_map,
+                )
+            )
 
         await asyncio.gather(*tasks)
+
+        # Create chunk-to-chunk reference relationships after all chunks are processed
+        await self._create_all_chunk_references(
+            chunk_references_map, paragraph_to_chunk_map, str(pdf_path.name)
+        )
 
         # Create entity nodes and relationships after all chunks are processed
         await self._create_document_entities(str(pdf_path.name), text)
@@ -734,7 +696,13 @@ class GraphBuilder:
         logger.info(f"✅ Successfully processed {pdf_path.name}")
         return True
 
-    async def _process_chunk_batch(self, chunks: List[Document], source: str):
+    async def _process_chunk_batch(
+        self,
+        chunks: List[Document],
+        source: str,
+        chunk_references_map: Dict,
+        paragraph_to_chunk_map: Dict,
+    ):
         """Process a batch of chunks."""
         # Generate embeddings for the batch
         texts = [chunk.page_content for chunk in chunks]
@@ -747,20 +715,44 @@ class GraphBuilder:
         # Process each chunk concurrently
         tasks = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            tasks.append(self._create_chunk_node(chunk, embedding, source))
+            tasks.append(
+                self._create_chunk_node(
+                    chunk,
+                    embedding,
+                    source,
+                    chunk_references_map,
+                    paragraph_to_chunk_map,
+                )
+            )
 
         await asyncio.gather(*tasks)
 
     async def _create_chunk_node(
-        self, chunk: Document, embedding: List[float], source: str
+        self,
+        chunk: Document,
+        embedding: List[float],
+        source: str,
+        chunk_references_map: Dict,
+        paragraph_to_chunk_map: Dict,
     ):
         """Create a chunk node and its relationships."""
         # Generate summary and extract entities
         summary = await self.processor.generate_summary(chunk.page_content)
         entities = await self.processor.extract_entities(chunk.page_content)
 
+        # Extract cross-references to other chunks and paragraph numbers in this chunk
+        chunk_references = self.processor.extract_chunk_references(chunk.page_content)
+        paragraph_numbers = self.processor.extract_paragraph_numbers(chunk.page_content)
+
         # Create unique chunk ID
         chunk_id = f"{source}_{chunk.metadata['chunk_index']}"
+
+        # Store references and paragraph mappings for later relationship creation
+        if chunk_references:
+            chunk_references_map[chunk_id] = chunk_references
+
+        for paragraph_num in paragraph_numbers:
+            paragraph_to_chunk_map[paragraph_num] = chunk_id
 
         chunk_params = {
             "id": chunk_id,
@@ -777,6 +769,8 @@ class GraphBuilder:
             "holdings": entities.get("holdings", []),
             "facts": entities.get("facts", []),
             "legal_tests": entities.get("legal_tests", []),
+            "chunk_references": chunk_references,
+            "paragraph_numbers": paragraph_numbers,
         }
 
         # Create chunk node and relationship to document
@@ -796,6 +790,8 @@ class GraphBuilder:
             holdings: $holdings,
             facts: $facts,
             legal_tests: $legal_tests,
+            chunk_references: $chunk_references,
+            paragraph_numbers: $paragraph_numbers,
             created_at: datetime()
         })
         CREATE (c)-[:PART_OF]->(d)
@@ -806,6 +802,55 @@ class GraphBuilder:
 
         # Create reference relationships based on entities
         await self._create_reference_relationships(chunk_id, entities)
+
+    async def _create_all_chunk_references(
+        self, chunk_references_map: Dict, paragraph_to_chunk_map: Dict, source: str
+    ):
+        """Create all chunk-to-chunk reference relationships after processing all chunks."""
+        logger.info(f"Creating chunk reference relationships for {source}")
+
+        relationships_created = 0
+
+        for source_chunk_id, referenced_paragraphs in chunk_references_map.items():
+            for paragraph_ref in referenced_paragraphs:
+                # Find the chunk that contains this paragraph number
+                target_chunk_id = paragraph_to_chunk_map.get(paragraph_ref)
+
+                if target_chunk_id and target_chunk_id != source_chunk_id:
+                    # Create the relationship
+                    create_ref_query = """
+                    MATCH (source_chunk:Chunk {id: $source_chunk_id})
+                    MATCH (target_chunk:Chunk {id: $target_chunk_id})
+                    MERGE (source_chunk)-[:REFERENCES_CHUNK {paragraph_ref: $paragraph_ref}]->(target_chunk)
+                    """
+
+                    try:
+                        self.neo4j.execute_write_query(
+                            create_ref_query,
+                            {
+                                "source_chunk_id": source_chunk_id,
+                                "target_chunk_id": target_chunk_id,
+                                "paragraph_ref": paragraph_ref,
+                            },
+                        )
+                        relationships_created += 1
+                        logger.debug(
+                            f"Created reference from {source_chunk_id} to {target_chunk_id} (paragraph {paragraph_ref})"
+                        )
+
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to create chunk reference relationship: {e}"
+                        )
+                else:
+                    if paragraph_ref not in paragraph_to_chunk_map:
+                        logger.debug(
+                            f"No chunk found containing paragraph {paragraph_ref} referenced by {source_chunk_id}"
+                        )
+
+        logger.info(
+            f"Created {relationships_created} chunk reference relationships for {source}"
+        )
 
     async def _create_reference_relationships(
         self, chunk_id: str, entities: Dict[str, List[str]]
@@ -833,11 +878,11 @@ class GraphBuilder:
                 logger.warning(f"Reference relationship creation failed: {e}")
 
     def _extract_document_metadata(self, pdf_path: Path, text: str) -> Dict[str, Any]:
-        """Extract enhanced metadata from document using LLM analysis."""
+        """Extract enhanced metadata from document using structured output."""
         try:
             # Basic metadata from filename
             filename = pdf_path.name
-            metadata = {"type": self._determine_document_type(pdf_path, text)}
+            metadata = {"type": self._determine_document_type(pdf_path)}
 
             # Extract year from filename (e.g., "[2019] SGCA 42.pdf")
             import re
@@ -855,49 +900,60 @@ class GraphBuilder:
                 )
                 metadata["case_number"] = citation_match.group(3)
 
-            # Use LLM for more detailed extraction
+            # Use structured output for detailed extraction
             start_time = time.time()
-            prompt = f"""
-            Extract metadata from this legal document and return as JSON:
-            - jurisdiction: Singapore, UK, US, etc.
-            - court_level: Supreme Court, High Court, District Court, etc.
-            - parties: List of party names (plaintiff, defendant, appellant, respondent)
-            - legal_areas: List of areas of law (contract, tort, criminal, etc.)
-            
-            Document text (first 2000 chars): {text[:2000]}
-            Filename: {filename}
-            
-            Return only valid JSON.
-            """
-
-            response = self.processor.llm.invoke(prompt)
-            response_text = (
-                response.content if hasattr(response, "content") else str(response)
-            )
-
-            metadata_time = time.time() - start_time
-            perf_tracker.record_metric("llm_time", metadata_time)
-            perf_tracker.record_metric("llm_calls", 1)
 
             try:
-                import json
-
-                llm_metadata = json.loads(
-                    re.search(r"\{.*\}", response_text, re.DOTALL).group(0)
+                llm_metadata = self.processor.metadata_extraction_chain.invoke(
+                    {
+                        "text_start": text[:2000],
+                        "text_end": text[-2000:],
+                        "filename": filename,
+                    }
                 )
-                metadata.update(llm_metadata)
-            except:
-                # Fallback to basic extraction
+
+                metadata_time = time.time() - start_time
+                perf_tracker.record_metric("llm_time", metadata_time)
+                perf_tracker.record_metric("llm_calls", 1)
+
+                # Convert Pydantic model to dictionary and update metadata
+                llm_metadata_dict = llm_metadata.model_dump()
+                metadata.update(llm_metadata_dict)
+
+            except Exception as llm_error:
+                logger.warning(f"Structured metadata extraction failed: {llm_error}")
+                # Fallback to basic extraction with proper structure
                 if "SGCA" in filename or "Singapore" in text[:1000]:
-                    metadata["jurisdiction"] = "Singapore"
-                    metadata["court_level"] = (
-                        "Court of Appeal" if "SGCA" in filename else "High Court"
+                    metadata.update(
+                        {
+                            "jurisdiction": "Singapore",
+                            "court_level": "Court of Appeal"
+                            if "SGCA" in filename
+                            else "High Court",
+                            "parties": [],
+                            "legal_areas": [],
+                        }
+                    )
+                else:
+                    metadata.update(
+                        {
+                            "jurisdiction": "Unknown",
+                            "court_level": "Unknown",
+                            "parties": [],
+                            "legal_areas": [],
+                        }
                     )
 
             return metadata
         except Exception as e:
             logger.warning(f"Error extracting metadata: {e}")
-            return {"type": "Document"}
+            return {
+                "type": "Document",
+                "jurisdiction": "Unknown",
+                "court_level": "Unknown",
+                "parties": [],
+                "legal_areas": [],
+            }
 
     async def _create_document_entities(self, source: str, full_text: str):
         """Create entity nodes and relationships for the entire document."""
@@ -1102,29 +1158,16 @@ class GraphBuilder:
             return "Lower"
         return "Unknown"
 
-    def _determine_document_type(self, pdf_path: Path, text: str) -> str:
+    def _determine_document_type(self, pdf_path: Path) -> str:
         """Determine document type based on filename and content."""
-        filename = pdf_path.name.lower()
-        text_lower = text.lower()
 
-        if any(keyword in filename for keyword in ["case", "judgment", "opinion"]):
+        # if the folder of the file is named "cases", then it is a case document
+        if "cases" in str(pdf_path.parent).lower():
             return "Case"
-        elif any(
-            keyword in filename for keyword in ["doctrine", "treatise", "commentary"]
-        ):
+        elif "doctrines" in str(pdf_path.parent).lower():
             return "Doctrine"
-        elif any(
-            keyword in text_lower
-            for keyword in ["plaintiff", "defendant", "court held"]
-        ):
-            return "Case"
-        elif any(
-            keyword in text_lower
-            for keyword in ["legal principle", "doctrine", "commentary"]
-        ):
-            return "Doctrine"
-        else:
-            return "Document"
+
+        return "Document"
 
 
 async def main():
@@ -1178,7 +1221,7 @@ async def main():
         logger.error(f"Documents directory not found: {docs_dir}")
         sys.exit(1)
 
-    pdf_files = list(docs_dir.glob("*.pdf"))
+    pdf_files = list(docs_dir.rglob("*.pdf"))
     if not pdf_files:
         logger.warning(f"No PDF files found in {docs_dir}")
         return

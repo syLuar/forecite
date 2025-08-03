@@ -1,0 +1,27 @@
+embeddings:
+  model: "gemini-embedding-001"
+  dimension: 3072
+
+ingestion:
+  entity_extraction: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0
+  summary_generation: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0
+  metadata_extraction: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0
+
+main:
+  drafting: 
+    model: "gemini-2.5-flash"
+    temperature: 0.2
+    thinking_budget: 0
+  research: 
+    model: "gemini-2.5-flash"
+    temperature: 0.2
+    thinking_budget: 0

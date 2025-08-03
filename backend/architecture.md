@@ -22,7 +22,7 @@ To design and build a robust, Python-based backend for a legal research and draf
 ## 2. Directory Structure (Backend)
 
 ```
-legal_assistant_backend/
+backend/
 ├── .env                  # Stores API keys and database credentials
 ├── .gitignore
 ├── main.py               # FastAPI application entry point, defines API routes
@@ -57,15 +57,21 @@ legal_assistant_backend/
 ### 3.1. Script: `scripts/ingest_graph.py`
 This script processes raw PDF documents from `data/raw_docs/` and populates the Neo4j database. It performs entity extraction and summarization using LLM calls to build a rich, interconnected graph.
 
+**Key Features:**
+- **Cross-Reference Detection:** Automatically detects when chunks reference other chunks within the same document using patterns like "[109] above", "see [116]", "paragraph [25]"
+- **Argument Flow Mapping:** Creates `REFERENCES_CHUNK` relationships to enable tracing of legal reasoning within documents
+- **Entity Extraction:** Extracts legal entities, cases, statutes, and concepts from each chunk
+- **Semantic Embeddings:** Generates vector embeddings for semantic similarity search
+
 ### 3.2. Neo4j Graph Schema
 -   **Nodes:**
-    -   `(:Document {source: string})`
-    -   `(:Chunk {text: string, summary: string, embedding: vector})`
-    -   `(:Concept {name: string, type: string})` - Type can be 'Doctrine', 'Case', etc.
+    -   `(:Document {source: string, type: string})` - Type can be 'Doctrine', 'Case', etc.
+    -   `(:Chunk {text: string, summary: string, embedding: vector, chunk_references: [string]})`
 -   **Relationships:**
-    -   `(:Chunk) -[:PART_OF]-> (:Document)`
-    -   `(:Chunk) -[:APPLIES_CONCEPT]-> (:Concept)`
--   **Indexes:** A vector index named `chunk_embeddings` is created on the `Chunk.embedding` property for efficient semantic search. Uniqueness constraints are applied to `Document.source` and `Concept.name`.
+    -   `(:Chunk) -[:PART_OF]-> (:Document)` - Chunk is part of a document
+    -   `(:Chunk) -[:REFERENCES]-> (:Document)` - Chunk references another document
+    -   `(:Chunk) -[:REFERENCES_CHUNK {paragraph_ref: string}]-> (:Chunk)` - Chunk references another chunk within the same document
+-   **Indexes:** A vector index named `chunk_embeddings` is created on the `Chunk.embedding` property for efficient semantic search. Uniqueness constraints are applied to `Document.source`.
 
 ---
 
@@ -94,7 +100,7 @@ This file defines the FastAPI application and its endpoints. It serves as the en
 -   **Workflow:**
     1.  Receives request and validates it.
     2.  Compiles the `drafting_graph` from `app.graphs.drafting_graph`.
-    3.  Initializes the state: `initial_state = {"user_facts": request.user_facts, "case_file": request.case_file.dict()}`.
+    3.  Initializes the state: `initial_state = {"user_facts": request.user_facts, "case_file": request.case_file.model_dump()}`.
     4.  Asynchronously invokes the graph: `final_state = await drafting_graph.ainvoke(initial_state)`.
     5.  Constructs the `ArgumentDraftResponse` from the `strategy` and `drafted_argument` fields of the `final_state` and returns it.
 
@@ -153,7 +159,13 @@ This graph devises a strategy, critiques it, and then drafts an argument.
 ### 6.1. File: `app/tools/neo4j_tools.py`
 This module defines the `LangChain` tools that agents will use to interact with the database.
 
--   **`@tool def vector_search(...)`:** Takes a semantic query string as input. Internally, it generates an embedding and runs a `CALL db.index.vector.queryNodes(...)` Cypher query against Neo4j.
+**Core Search Tools:**
+-   **`@tool def vector_search(...)`:** Takes a semantic query string as input. Internally, it generates an embedding and runs a `CALL db.index.vector.queryNodes(...)` Cypher query against Neo4j. Now includes chunk references in results.
 -   **`@tool def graph_expand(...)`:** Takes Neo4j node IDs as input and runs a `MATCH` query to find connected nodes and their properties (e.g., retrieving the parent `Document` for a given `Chunk`).
 
-These tools abstract the database logic, allowing the agents in the graph to simply declare their intent (e.g., "find similar ideas") without needing to know the underlying Cypher query syntax.
+**Cross-Reference Tools:**
+-   **`@tool def find_chunk_references(...)`:** Finds chunks that reference each other within documents, enabling argument flow analysis.
+-   **`@tool def get_chunk_context(...)`:** Retrieves contextual information around a chunk, including surrounding chunks and references.
+-   **`@tool def trace_argument_flow(...)`:** Traces legal reasoning by following chunk reference chains.
+
+These tools abstract the database logic, allowing the agents in the graph to simply declare their intent (e.g., "find similar ideas", "trace this argument") without needing to know the underlying Cypher query syntax.
