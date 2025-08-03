@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Loader2, Send, X, Scale } from 'lucide-react';
-import { mockLegalDocuments, LegalDocument } from '../../data/mockSearchData';
-import { searchDocuments, SearchFilters as SearchFiltersType } from '../../utils/searchUtils';
+import { LegalDocument } from '../../data/mockSearchData';
+import { SearchFilters as SearchFiltersType } from '../../utils/searchUtils';
+import { apiClient } from '../../services/api';
+import { transformRetrievedDocToLegalDoc } from '../../services/dataTransforms';
+import { ResearchQueryRequest } from '../../types/api';
 import SearchResult from './SearchResult';
 import SearchFilters from './SearchFilters';
 
@@ -11,25 +14,52 @@ const SearchContent: React.FC = () => {
   const [results, setResults] = useState<LegalDocument[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSearch = useCallback(async (searchQuery: string = query, showLoading: boolean = true) => {
+    if (!searchQuery.trim()) {
+      // If empty query, just clear results
+      setResults([]);
+      setHasSearched(true);
+      return;
+    }
+    
     if (showLoading) {
       setIsLoading(true);
     }
+    setError(null);
     setHasSearched(true);
 
-    // Simulate 5s API delay for realistic feel only when showing loading
-    if (showLoading) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
+    try {
+      const request: ResearchQueryRequest = {
+        query_text: searchQuery,
+        max_results: 15,
+      };
 
-    const searchResults = searchDocuments(mockLegalDocuments, searchQuery, filters);
-    setResults(searchResults);
-    
-    if (showLoading) {
-      setIsLoading(false);
+      // Add filters
+      if (filters.jurisdiction) {
+        request.jurisdiction = filters.jurisdiction;
+      }
+      if (filters.category && filters.category !== 'all') {
+        request.document_type = filters.category === 'precedent' ? 'Case' : 'Statute';
+      }
+
+      const response = await apiClient.searchDocuments(request);
+      
+      // Transform API response to UI format
+      const transformedResults = response.retrieved_docs.map(transformRetrievedDocToLegalDoc);
+      setResults(transformedResults);
+      
+    } catch (err) {
+      console.error('Search failed:', err);
+      setError('Search failed. Please try again.');
+      setResults([]);
+    } finally {
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
-  }, [query, filters]);
+  }, [filters]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +82,7 @@ const SearchContent: React.FC = () => {
     if (hasSearched) {
       handleSearch(query, false); // No loading for filter changes
     }
-  }, [filters, hasSearched, handleSearch, query]);
+  }, [filters, hasSearched, handleSearch]);
 
   return (
     <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
@@ -130,8 +160,24 @@ const SearchContent: React.FC = () => {
           </div>
         )}
 
+        {/* Error State */}
+        {error && hasSearched && !isLoading && (
+          <div className="text-center py-12">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md mx-auto">
+              <h3 className="text-lg font-medium text-red-800 mb-2">Search Error</h3>
+              <p className="text-red-600 mb-4">{error}</p>
+              <button 
+                onClick={() => handleSearch(query, true)}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Search Results - show when not loading */}
-        {hasSearched && !isLoading && (
+        {hasSearched && !isLoading && !error && (
           <div className="space-y-4">
             {results.length > 0 ? (
               <>

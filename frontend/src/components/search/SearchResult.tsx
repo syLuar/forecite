@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Calendar, MapPin, Scale, FileText, HelpCircle, Plus, Check, Undo2, AlertCircle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { LegalDocument } from '../../data/mockSearchData';
 import { highlightMatches } from '../../utils/searchUtils';
 import Modal from '../shared/Modal';
 import SelectCaseModal from '../shared/SelectCaseModal';
-import { Case } from '../../data/mockStrategyData';
 
 interface SearchResultProps {
   document: LegalDocument;
@@ -17,7 +17,7 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
   const [explanation, setExplanation] = useState('');
   const [isAdded, setIsAdded] = useState(false);
   const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
-  const [addedToCase, setAddedToCase] = useState<Case | null>(null);
+  const [addedToCase, setAddedToCase] = useState<any | null>(null);
 
   const hasRelevance = document.relevanceScore !== undefined && document.relevanceScore > 0;
 
@@ -77,15 +77,22 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
   };
 
   const handleAddReference = () => {
-    setShowSelectCaseModal(true);
+    if (isAdded) {
+      // Reset added state - in real implementation, this might remove from the last selected case file
+      setIsAdded(false);
+      setAddedToCase(null);
+      
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        setTimeoutId(null);
+      }
+    } else {
+      // Open the modal to select case file
+      setShowSelectCaseModal(true);
+    }
   };
 
-  const handleAddToCase = (caseItem: Case, legalDocument: LegalDocument) => {
-    console.log('Added document to case:', {
-      case: caseItem,
-      document: legalDocument
-    });
-    
+  const handleAddToCase = (caseItem: any, legalDocument: LegalDocument) => {
     setIsAdded(true);
     setAddedToCase(caseItem);
     
@@ -94,8 +101,7 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
     }
     
     const id = setTimeout(() => {
-      setIsAdded(false);
-      setAddedToCase(null);
+      setAddedToCase(null); // Remove the case reference but keep as added
     }, 10000);
     
     setTimeoutId(id);
@@ -103,12 +109,8 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
 
   const handleUndo = (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Removed document from case:', {
-      case: addedToCase,
-      document: document
-    });
     
-    // Reset state
+    // Reset the added state
     setIsAdded(false);
     setAddedToCase(null);
 
@@ -166,12 +168,9 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
           </p>
         )}
 
-        <p 
-          className="text-gray-700 mb-4 leading-relaxed"
-          dangerouslySetInnerHTML={{ 
-            __html: highlightMatches(document.summary, searchQuery) 
-          }}
-        />
+        <div className="text-gray-700 mb-4 leading-relaxed prose prose-sm max-w-none">
+          <ReactMarkdown>{document.summary}</ReactMarkdown>
+        </div>
 
         <div className="flex flex-wrap gap-2 mb-4">
           {document.keyTerms.slice(0, 5).map((term, index) => (
@@ -207,14 +206,14 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
               <>
                 <span className="flex items-center text-green-600 font-medium mr-3">
                   <Check className="h-4 w-4 mr-1" />
-                  Added to {addedToCase?.title}
+                  Added to Case File
                 </span>
                 <button 
                   onClick={handleUndo}
                   className="flex items-center text-gray-500 hover:text-gray-700 font-medium"
                 >
                   <Undo2 className="h-4 w-4 mr-1" />
-                  Undo
+                  Remove
                 </button>
               </>
             ) : (
@@ -223,7 +222,7 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
                 className="flex items-center text-primary hover:text-primary-700 font-medium"
               >
                 <Plus className="h-4 w-4 mr-1" />
-                Add
+                Add to Case File
               </button>
             )}
           </div>

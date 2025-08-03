@@ -1,3 +1,5 @@
+import { RetrievedDocument } from '../types/api';
+
 export interface LegalDocument {
   id: string;
   title: string;
@@ -9,6 +11,7 @@ export interface LegalDocument {
   summary: string;
   keyTerms: string[];
   relevanceScore?: number;
+  originalApiData?: RetrievedDocument; // Store original API data for case file operations
 }
 
 export const legalCategories = [
