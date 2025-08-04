@@ -167,11 +167,11 @@ start_backend() {
     print_status "Starting backend server on port 8000..."
     
     # Activate virtual environment from project root
-    source .venv/bin/activate
+    source backend/.venv/bin/activate
     
     cd backend
     # Start FastAPI server in background
-    uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
+    python main.py &
     BACKEND_PID=$!
     
     # Wait a bit and check if the backend started successfully
