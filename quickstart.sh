@@ -34,23 +34,49 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to detect operating system
+detect_os() {
+    case "$(uname -s)" in
+        Linux*)     echo "linux";;
+        Darwin*)    echo "macos";;
+        CYGWIN*|MINGW*|MSYS*) echo "windows";;
+        *)          echo "unknown";;
+    esac
+}
+
 # Function to check if a port is in use
 port_in_use() {
-    lsof -Pi :$1 -sTCP:LISTEN -t >/dev/null 2>&1
+    local port=$1
+    local os=$(detect_os)
+    
+    if [ "$os" = "windows" ]; then
+        netstat -an | grep ":$port " | grep "LISTENING" >/dev/null 2>&1
+    else
+        lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1
+    fi
 }
 
 # Function to kill processes on specific ports
 cleanup_ports() {
     print_status "Cleaning up any existing processes..."
+    local os=$(detect_os)
     
     if port_in_use 8000; then
         print_warning "Port 8000 is in use, attempting to free it..."
-        lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+        if [ "$os" = "windows" ]; then
+            netstat -ano | grep ":8000 " | grep "LISTENING" | awk '{print $5}' | xargs taskkill /PID /F 2>/dev/null || true
+        else
+            lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+        fi
     fi
     
     if port_in_use 3000; then
         print_warning "Port 3000 is in use, attempting to free it..."
-        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+        if [ "$os" = "windows" ]; then
+            netstat -ano | grep ":3000 " | grep "LISTENING" | awk '{print $5}' | xargs taskkill /PID /F 2>/dev/null || true
+        else
+            lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+        fi
     fi
     
     sleep 2
@@ -59,15 +85,27 @@ cleanup_ports() {
 # Function to check prerequisites
 check_prerequisites() {
     print_status "Checking prerequisites..."
+    local os=$(detect_os)
     
     # Check if Python is installed
-    if ! command_exists python3; then
-        print_error "Python 3 is not installed. Please install Python 3.11 or higher."
-        exit 1
+    if [ "$os" = "windows" ]; then
+        if ! command_exists python; then
+            print_error "Python is not installed. Please install Python 3.11 or higher."
+            exit 1
+        fi
+        
+        # Check Python version on Windows
+        python_version=$(python --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+    else
+        if ! command_exists python3; then
+            print_error "Python 3 is not installed. Please install Python 3.11 or higher."
+            exit 1
+        fi
+        
+        # Check Python version on Unix
+        python_version=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
     fi
     
-    # Check Python version
-    python_version=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
     required_version="3.11"
     if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
         print_error "Python $required_version or higher is required. Found: $python_version"
@@ -111,16 +149,25 @@ check_prerequisites() {
 # Function to setup backend
 setup_backend() {
     print_status "Setting up backend..."
+    local os=$(detect_os)
     
     # Check if virtual environment exists in project root
     if [ ! -d "backend/.venv" ]; then
         print_status "Creating Python virtual environment with uv in project root..."
-        uv venv backend/.venv
+        if [ "$os" = "windows" ]; then
+            uv venv backend/.venv --python python
+        else
+            uv venv backend/.venv --python python3
+        fi
     fi
     
-    # Activate virtual environment
+    # Activate virtual environment based on OS
     print_status "Activating virtual environment..."
-    source backend/.venv/bin/activate
+    if [ "$os" = "windows" ]; then
+        source backend/.venv/Scripts/activate
+    else
+        source backend/.venv/bin/activate
+    fi
     
     # Install dependencies using uv
     print_status "Installing backend dependencies with uv..."
@@ -165,13 +212,22 @@ setup_frontend() {
 # Function to start backend server
 start_backend() {
     print_status "Starting backend server on port 8000..."
+    local os=$(detect_os)
     
     # Activate virtual environment from project root
-    source backend/.venv/bin/activate
+    if [ "$os" = "windows" ]; then
+        source backend/.venv/Scripts/activate
+    else
+        source backend/.venv/bin/activate
+    fi
     
     cd backend
     # Start FastAPI server in background
-    python main.py &
+    if [ "$os" = "windows" ]; then
+        python main.py &
+    else
+        python3 main.py &
+    fi
     BACKEND_PID=$!
     
     # Wait a bit and check if the backend started successfully

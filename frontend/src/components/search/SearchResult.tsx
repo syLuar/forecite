@@ -9,9 +9,10 @@ import SelectCaseModal from '../shared/SelectCaseModal';
 interface SearchResultProps {
   document: LegalDocument;
   searchQuery: string;
+  onDocumentAdded?: () => void;
 }
 
-const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) => {
+const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery, onDocumentAdded }) => {
   const [showModal, setShowModal] = useState(false);
   const [showSelectCaseModal, setShowSelectCaseModal] = useState(false);
   const [explanation, setExplanation] = useState('');
@@ -105,6 +106,11 @@ const SearchResult: React.FC<SearchResultProps> = ({ document, searchQuery }) =>
     }, 10000);
     
     setTimeoutId(id);
+    
+    // Notify parent that document was added
+    if (onDocumentAdded) {
+      onDocumentAdded();
+    }
   };
 
   const handleUndo = (e: React.MouseEvent) => {

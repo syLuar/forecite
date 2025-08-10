@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Scale, FileText, Users, Save, Trash2, Eye } from 'lucide-react';
+import { ArrowLeft, Scale, FileText, Save, Trash2, Eye, Search, PenTool, ScrollText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../../services/api';
 import { ArgumentDraftRequest, ArgumentDraftResponse, SavedArgumentDraft, CaseFileResponse } from '../../types/api';
+import SearchModal from '../shared/SearchModal';
+import DraftArgumentModal from '../shared/DraftArgumentModal';
+import SaveDraftModal from '../shared/SaveDraftModal';
+import ConfirmModal from '../shared/ConfirmModal';
+import SuccessModal from '../shared/SuccessModal';
 
 interface CaseFileDetailProps {
   caseFileId: number;
@@ -20,6 +25,16 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const [legalQuestion, setLegalQuestion] = useState('');
   const [viewingDraft, setViewingDraft] = useState<SavedArgumentDraft | null>(null);
   const [viewingDocument, setViewingDocument] = useState<any | null>(null);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [showSaveDraftModal, setShowSaveDraftModal] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [confirmDetails, setConfirmDetails] = useState({ title: '', message: '', confirmText: '', isDestructive: false });
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successDetails, setSuccessDetails] = useState({ title: '', message: '' });
 
   const loadCaseFileData = useCallback(async () => {
     try {
@@ -50,8 +65,11 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     loadCaseFileData();
   }, [loadCaseFileData]);
 
-  const handleDraftArgument = async () => {
-    if (!userFacts.trim()) {
+  const handleDraftArgument = async (facts?: string, question?: string) => {
+    const factsToUse = facts || userFacts;
+    const questionToUse = question || legalQuestion;
+
+    if (!factsToUse.trim()) {
       alert('Please enter the case facts before drafting an argument.');
       return;
     }
@@ -65,13 +83,17 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     try {
       // Update case file with current facts/questions
       await apiClient.updateCaseFile(caseFileId, {
-        user_facts: userFacts,
-        legal_question: legalQuestion
+        user_facts: factsToUse,
+        legal_question: questionToUse
       });
 
+      // Update local state
+      setUserFacts(factsToUse);
+      setLegalQuestion(questionToUse);
+
       const request: ArgumentDraftRequest = {
-        user_facts: userFacts,
-        legal_question: legalQuestion,
+        user_facts: factsToUse,
+        legal_question: questionToUse,
         case_file: {
           documents: caseFile.documents,
           total_documents: caseFile.total_documents,
@@ -82,6 +104,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       const response = await apiClient.draftArgument(request);
       setDraftedArgument(response);
       setShowArgumentDraft(true);
+      setShowDraftModal(false); // Close the modal
       
     } catch (error) {
       console.error('Argument drafting failed:', error);
@@ -96,19 +119,27 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       alert('No draft to save.');
       return;
     }
+    setShowSaveDraftModal(true);
+  };
 
-    const title = prompt('Enter a title for this draft:');
-    if (title === null) return; // User cancelled
+  const handleSaveDraftWithTitle = async (title: string) => {
+    if (!draftedArgument) {
+      return;
+    }
 
+    setIsSavingDraft(true);
     try {
-      await apiClient.saveDraft(caseFileId, draftedArgument, title || undefined);
+      await apiClient.saveDraft(caseFileId, draftedArgument, title);
       await loadCaseFileData(); // Reload to show new draft
-      alert('Draft saved successfully!');
+      setShowSaveDraftModal(false);
       setShowArgumentDraft(false);
       setDraftedArgument(null);
+      // You could add a success toast here instead of alert
     } catch (error) {
       console.error('Failed to save draft:', error);
       alert('Failed to save draft. Please try again.');
+    } finally {
+      setIsSavingDraft(false);
     }
   };
 
@@ -123,17 +154,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     }
   };
 
-  const handleDeleteDraft = async (draftId: number) => {
-    if (window.confirm('Are you sure you want to delete this draft?')) {
-      try {
-        await apiClient.deleteDraft(draftId);
-        await loadCaseFileData();
-      } catch (error) {
-        console.error('Failed to delete draft:', error);
-        alert('Failed to delete draft. Please try again.');
-      }
-    }
-  };
+
 
   const handleViewDocument = async (documentId: string) => {
     try {
@@ -146,16 +167,67 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     }
   };
 
+  const showConfirmDialog = (title: string, message: string, confirmText: string, action: () => void, isDestructive: boolean = true) => {
+    setConfirmDetails({ title, message, confirmText, isDestructive });
+    setConfirmAction(() => action);
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmAction = async () => {
+    if (confirmAction) {
+      setIsDeleting(true);
+      try {
+        await confirmAction();
+        setShowConfirmModal(false);
+        setConfirmAction(null);
+      } catch (error) {
+        // Error handling is done in the specific action functions
+      } finally {
+        setIsDeleting(false);
+      }
+    }
+  };
+
   const handleRemoveDocument = async (documentId: string) => {
-    if (window.confirm('Are you sure you want to remove this document from the case file?')) {
+    const removeAction = async () => {
       try {
         await apiClient.removeDocumentFromCaseFile(caseFileId, documentId);
         await loadCaseFileData();
       } catch (error) {
         console.error('Failed to remove document:', error);
         alert('Failed to remove document. Please try again.');
+        throw error;
       }
-    }
+    };
+
+    showConfirmDialog(
+      'Remove Document',
+      'Are you sure you want to remove this document from the case file?',
+      'Remove Document',
+      removeAction,
+      true
+    );
+  };
+
+  const handleDeleteDraft = async (draftId: number) => {
+    const deleteAction = async () => {
+      try {
+        await apiClient.deleteDraft(draftId);
+        await loadCaseFileData();
+      } catch (error) {
+        console.error('Failed to delete draft:', error);
+        alert('Failed to delete draft. Please try again.');
+        throw error;
+      }
+    };
+
+    showConfirmDialog(
+      'Delete Draft',
+      'Are you sure you want to delete this draft? This action cannot be undone.',
+      'Delete Draft',
+      deleteAction,
+      true
+    );
   };
 
   const formatDate = (dateString: string) => {
@@ -165,6 +237,15 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const formatScore = (score?: number) => {
     if (score === undefined || score === null) return 'N/A';
     return `${Math.round(score * 100)}%`;
+  };
+
+  const handleDocumentAdded = async () => {
+    await loadCaseFileData();
+    setSuccessDetails({
+      title: 'Document Added Successfully!',
+      message: 'The document has been added to your case file and is now available for use in your legal arguments.'
+    });
+    setShowSuccessModal(true);
   };
 
   if (loading) {
@@ -206,7 +287,8 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     // If viewing a document, show document view
     if (currentDocument) {
       return (
-        <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
+        <>
+          <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
           <div className="max-w-6xl mx-auto">
             {/* Header with back button */}
             <div className="flex items-center justify-between mb-8">
@@ -333,7 +415,51 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
               </div>
             )}
           </div>
-        </div>
+          </div>
+
+          {/* Modals - Always rendered */}
+          <DraftArgumentModal
+            isOpen={showDraftModal}
+            onClose={() => setShowDraftModal(false)}
+            caseFileId={caseFileId}
+            onDraft={handleDraftArgument}
+            isDrafting={isDrafting}
+            initialFacts={userFacts}
+            initialQuestion={legalQuestion}
+          />
+
+          <SaveDraftModal
+            isOpen={showSaveDraftModal}
+            onClose={() => setShowSaveDraftModal(false)}
+            onSave={handleSaveDraftWithTitle}
+            isSaving={isSavingDraft}
+          />
+
+          <SearchModal
+            isOpen={showSearchModal}
+            onClose={() => setShowSearchModal(false)}
+            caseFileId={caseFileId}
+            onDocumentAdded={handleDocumentAdded}
+          />
+
+          <ConfirmModal
+            isOpen={showConfirmModal}
+            onClose={() => setShowConfirmModal(false)}
+            onConfirm={handleConfirmAction}
+            title={confirmDetails.title}
+            message={confirmDetails.message}
+            confirmText={confirmDetails.confirmText}
+            isDestructive={confirmDetails.isDestructive}
+            isLoading={isDeleting}
+          />
+
+          <SuccessModal
+            isOpen={showSuccessModal}
+            onClose={() => setShowSuccessModal(false)}
+            title={successDetails.title}
+            message={successDetails.message}
+          />
+        </>
       );
     }
     
@@ -341,7 +467,8 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     if (!currentDraft) return null;
 
     return (
-      <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
+      <>
+        <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
         <div className="max-w-6xl mx-auto">
           {/* Header with back button */}
           <div className="flex items-center justify-between mb-8">
@@ -447,29 +574,74 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             </div>
           )}
         </div>
-      </div>
+        </div>
+
+        {/* Modals - Always rendered */}
+        <DraftArgumentModal
+          isOpen={showDraftModal}
+          onClose={() => setShowDraftModal(false)}
+          caseFileId={caseFileId}
+          onDraft={handleDraftArgument}
+          isDrafting={isDrafting}
+          initialFacts={userFacts}
+          initialQuestion={legalQuestion}
+        />
+
+        <SaveDraftModal
+          isOpen={showSaveDraftModal}
+          onClose={() => setShowSaveDraftModal(false)}
+          onSave={handleSaveDraftWithTitle}
+          isSaving={isSavingDraft}
+        />
+
+        <SearchModal
+          isOpen={showSearchModal}
+          onClose={() => setShowSearchModal(false)}
+          caseFileId={caseFileId}
+          onDocumentAdded={handleDocumentAdded}
+        />
+
+        <ConfirmModal
+          isOpen={showConfirmModal}
+          onClose={() => setShowConfirmModal(false)}
+          onConfirm={handleConfirmAction}
+          title={confirmDetails.title}
+          message={confirmDetails.message}
+          confirmText={confirmDetails.confirmText}
+          isDestructive={confirmDetails.isDestructive}
+          isLoading={isDeleting}
+        />
+
+        <SuccessModal
+          isOpen={showSuccessModal}
+          onClose={() => setShowSuccessModal(false)}
+          title={successDetails.title}
+          message={successDetails.message}
+        />
+      </>
     );
   }
 
   return (
-    <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <button
-            onClick={onBack}
-            className="flex items-center text-primary hover:text-primary-700 font-medium"
-          >
-            <ArrowLeft className="h-5 w-5 mr-2" />
-            Back to Strategy
-          </button>
-          <div className="text-right">
-            <h1 className="text-2xl font-bold text-gray-900">{caseFile.title}</h1>
-            <p className="text-gray-600">
-              {caseFile.documents.length} documents • {drafts.length} drafts
-            </p>
+    <>
+      <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
+        <div className="max-w-6xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={onBack}
+              className="flex items-center text-primary hover:text-primary-700 font-medium"
+            >
+              <ArrowLeft className="h-5 w-5 mr-2" />
+              Back to Strategy
+            </button>
+            <div className="text-right">
+              <h1 className="text-2xl font-bold text-gray-900">{caseFile.title}</h1>
+              <p className="text-gray-600">
+                {caseFile.documents.length} documents • {drafts.length} drafts
+              </p>
+            </div>
           </div>
-        </div>
 
         {/* Case File Info */}
         {caseFile.description && (
@@ -479,16 +651,25 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Documents and Drafts */}
-          <div className="lg:col-span-1 space-y-6">
+        <div className="max-w-md mx-auto">
+          <div className="space-y-6">
             {/* Documents */}
             <div className="bg-white rounded-lg shadow-md border border-gray-200">
               <div className="p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                  <FileText className="h-5 w-5 mr-2" />
-                  Documents ({caseFile.documents.length})
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                    <FileText className="h-5 w-5 mr-2" />
+                    Documents ({caseFile.documents.length})
+                  </h3>
+                  <button
+                    onClick={() => setShowSearchModal(true)}
+                    className="flex items-center px-3 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
+                    title="Search for documents to add to case file"
+                  >
+                    <Search className="h-4 w-4 mr-1.5" />
+                    Search for Documents
+                  </button>
+                </div>
               </div>
               <div className="max-h-80 overflow-y-auto">
                 {caseFile.documents.length > 0 ? (
@@ -534,10 +715,20 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             {/* Saved Drafts */}
             <div className="bg-white rounded-lg shadow-md border border-gray-200">
               <div className="p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-                  <FileText className="h-5 w-5 mr-2" />
-                  Saved Drafts ({drafts.length})
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                    <ScrollText className="h-5 w-5 mr-2" />
+                    Saved Drafts ({drafts.length})
+                  </h3>
+                  <button
+                    onClick={() => setShowDraftModal(true)}
+                    className="flex items-center px-3 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
+                    title="Create a new legal argument"
+                  >
+                    <PenTool className="h-4 w-4 mr-1.5" />
+                    Add Argument
+                  </button>
+                </div>
               </div>
               <div className="max-h-80 overflow-y-auto">
                 {drafts.length > 0 ? (
@@ -576,7 +767,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                   </div>
                 ) : (
                   <div className="p-6 text-center text-gray-500">
-                    <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <ScrollText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                     <p>No drafts saved</p>
                     <p className="text-sm">Create an argument to see it here</p>
                   </div>
@@ -584,70 +775,54 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Right Column - Argument Drafting */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <Users className="h-5 w-5 mr-2" />
-                Draft Legal Argument
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Case Facts *
-                  </label>
-                  <textarea
-                    value={userFacts}
-                    onChange={(e) => setUserFacts(e.target.value)}
-                    placeholder="Describe the key facts of your case..."
-                    className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Legal Question (Optional)
-                  </label>
-                  <textarea
-                    value={legalQuestion}
-                    onChange={(e) => setLegalQuestion(e.target.value)}
-                    placeholder="What specific legal question should the argument address?"
-                    className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
-                </div>
-                
-                <button
-                  onClick={handleDraftArgument}
-                  disabled={isDrafting || !userFacts.trim() || caseFile.documents.length === 0}
-                  className="w-full flex items-center justify-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary-700 focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-                >
-                  {isDrafting ? (
-                    <>
-                      <Scale className="h-5 w-5 mr-2 animate-spin" />
-                      Drafting Argument...
-                    </>
-                  ) : (
-                    <>
-                      <Scale className="h-5 w-5 mr-2" />
-                      Draft Legal Argument
-                    </>
-                  )}
-                </button>
-                
-                {!userFacts.trim() && (
-                  <p className="text-sm text-gray-500">Please provide case facts to draft an argument</p>
-                )}
-                {caseFile.documents.length === 0 && (
-                  <p className="text-sm text-gray-500">Add documents to your case file from the Search tab</p>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
-    </div>
+
+      {/* Modals - Always rendered */}
+      <DraftArgumentModal
+        isOpen={showDraftModal}
+        onClose={() => setShowDraftModal(false)}
+        caseFileId={caseFileId}
+        onDraft={handleDraftArgument}
+        isDrafting={isDrafting}
+        initialFacts={userFacts}
+        initialQuestion={legalQuestion}
+      />
+
+      <SaveDraftModal
+        isOpen={showSaveDraftModal}
+        onClose={() => setShowSaveDraftModal(false)}
+        onSave={handleSaveDraftWithTitle}
+        isSaving={isSavingDraft}
+      />
+
+      <SearchModal
+        isOpen={showSearchModal}
+        onClose={() => setShowSearchModal(false)}
+        caseFileId={caseFileId}
+        onDocumentAdded={handleDocumentAdded}
+      />
+
+      <ConfirmModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        onConfirm={handleConfirmAction}
+        title={confirmDetails.title}
+        message={confirmDetails.message}
+        confirmText={confirmDetails.confirmText}
+        isDestructive={confirmDetails.isDestructive}
+        isLoading={isDeleting}
+      />
+
+      <SuccessModal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        title={successDetails.title}
+        message={successDetails.message}
+      />
+    </>
   );
 };
 

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import Header from './components/Header';
 import BottomNavigation from './components/BottomNavigation';
 import SearchContent from './components/search/SearchContent';
-import JudgeContent from './components/JudgeContent';
 import StrategyContent from './components/strategy/StrategyContent';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 
@@ -13,8 +12,6 @@ function App() {
     switch (activeTab) {
       case 'search':
         return <SearchContent />;
-      case 'judge':
-        return <JudgeContent />;
       case 'argue':
         return <StrategyContent />;
       default:
