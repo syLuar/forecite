@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Scale, FileText, Save, Trash2, Eye, Search, PenTool, ScrollText } from 'lucide-react';
+import { ArrowLeft, Scale, FileText, Save, Trash2, Eye, Search, PenTool, ScrollText, Gavel } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../../services/api';
 import { ArgumentDraftRequest, ArgumentDraftResponse, SavedArgumentDraft, CaseFileResponse } from '../../types/api';
@@ -8,6 +8,7 @@ import DraftArgumentModal from '../shared/DraftArgumentModal';
 import SaveDraftModal from '../shared/SaveDraftModal';
 import ConfirmModal from '../shared/ConfirmModal';
 import SuccessModal from '../shared/SuccessModal';
+import MootCourt from './MootCourt';
 
 interface CaseFileDetailProps {
   caseFileId: number;
@@ -35,6 +36,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const [isDeleting, setIsDeleting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successDetails, setSuccessDetails] = useState({ title: '', message: '' });
+  const [showMootCourt, setShowMootCourt] = useState(false);
 
   const loadCaseFileData = useCallback(async () => {
     try {
@@ -246,6 +248,10 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       message: 'The document has been added to your case file and is now available for use in your legal arguments.'
     });
     setShowSuccessModal(true);
+  };
+
+  const handleMootCourtClick = () => {
+    setShowMootCourt(true);
   };
 
   if (loading) {
@@ -539,9 +545,9 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             <div className="prose max-w-none text-gray-700 leading-relaxed">
               <ReactMarkdown 
                 components={{
-                  h1: ({...props}) => <h1 className="text-2xl font-bold text-gray-900 mb-4" {...props} />,
-                  h2: ({...props}) => <h2 className="text-xl font-semibold text-gray-900 mb-3" {...props} />,
-                  h3: ({...props}) => <h3 className="text-lg font-medium text-gray-900 mb-2" {...props} />,
+                  h1: ({children, ...props}) => children ? <h1 className="text-2xl font-bold text-gray-900 mb-4" {...props}>{children}</h1> : null,
+                  h2: ({children, ...props}) => children ? <h2 className="text-xl font-semibold text-gray-900 mb-3" {...props}>{children}</h2> : null,
+                  h3: ({children, ...props}) => children ? <h3 className="text-lg font-medium text-gray-900 mb-2" {...props}>{children}</h3> : null,
                   p: ({...props}) => <p className="mb-4 text-gray-700 leading-relaxed" {...props} />,
                   ul: ({...props}) => <ul className="list-disc list-inside mb-4 space-y-1" {...props} />,
                   ol: ({...props}) => <ol className="list-decimal list-inside mb-4 space-y-1" {...props} />,
@@ -622,6 +628,17 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     );
   }
 
+  // Show Moot Court page
+  if (showMootCourt) {
+    return (
+      <MootCourt
+        caseFileId={caseFileId}
+        caseFileTitle={caseFile.title}
+        onBack={() => setShowMootCourt(false)}
+      />
+    );
+  }
+
   return (
     <>
       <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
@@ -651,7 +668,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
           </div>
         )}
 
-        <div className="max-w-md mx-auto">
+        <div className="w-full">
           <div className="space-y-6">
             {/* Documents */}
             <div className="bg-white rounded-lg shadow-md border border-gray-200">
@@ -676,23 +693,34 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                   <div className="divide-y divide-gray-200">
                     {caseFile.documents.map((doc: any) => (
                       <div key={doc.document_id} className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 text-sm mb-1">{doc.title}</h4>
-                            <p className="text-xs text-gray-600 mb-1">{doc.citation}</p>
-                            <p className="text-xs text-gray-500">{doc.jurisdiction} • {doc.year}</p>
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-4 mb-2">
+                              <h4 className="font-medium text-gray-900 text-base truncate">{doc.title}</h4>
+                              {doc.relevance_score_percent && (
+                                <span className="px-3 py-1 text-sm font-medium bg-blue-100 text-blue-800 rounded-full whitespace-nowrap">
+                                  {Math.round(doc.relevance_score_percent)}% relevant
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 truncate">{doc.citation}</p>
                           </div>
-                          <div className="flex items-center space-x-1 ml-2">
+                          <div className="flex items-center gap-2 text-sm text-gray-500 whitespace-nowrap">
+                            <span>{doc.jurisdiction}</span>
+                            <span className="text-gray-400">•</span>
+                            <span>{doc.year}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 flex-shrink-0">
                             <button
                               onClick={() => handleViewDocument(doc.document_id)}
-                              className="p-1 text-gray-400 hover:text-primary"
+                              className="p-2 text-gray-400 hover:text-primary hover:bg-gray-100 rounded-lg transition-colors"
                               title="View document"
                             >
                               <Eye className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => handleRemoveDocument(doc.document_id)}
-                              className="p-1 text-gray-400 hover:text-red-600"
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                               title="Remove document"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -735,27 +763,40 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                   <div className="divide-y divide-gray-200">
                     {drafts.map((draft) => (
                       <div key={draft.id} className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 text-sm mb-1">{draft.title}</h4>
-                            <p className="text-xs text-gray-500 mb-2">{formatDate(draft.created_at)}</p>
-                            <div className="flex items-center space-x-2 text-xs">
-                              <span>Strength: {formatScore(draft.argument_strength)}</span>
-                              <span>•</span>
-                              <span>Coverage: {formatScore(draft.precedent_coverage)}</span>
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-4">
+                              <h4 className="font-medium text-gray-900 text-base truncate">{draft.title}</h4>
+                              <div className="flex items-center gap-3">
+                                <span className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${
+                                  (draft.argument_strength || 0) >= 0.8 ? 'bg-green-100 text-green-800' :
+                                  (draft.argument_strength || 0) >= 0.6 ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {formatScore(draft.argument_strength)} strength
+                                </span>
+                                <span className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap ${
+                                  (draft.precedent_coverage || 0) >= 0.8 ? 'bg-purple-100 text-purple-800' :
+                                  (draft.precedent_coverage || 0) >= 0.6 ? 'bg-indigo-100 text-indigo-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {formatScore(draft.precedent_coverage)} coverage
+                                </span>
+                              </div>
                             </div>
                           </div>
-                          <div className="flex items-center space-x-1 ml-2">
+                          <p className="text-sm text-gray-500 whitespace-nowrap">{formatDate(draft.created_at)}</p>
+                          <div className="flex items-center space-x-2 flex-shrink-0">
                             <button
                               onClick={() => handleViewDraft(draft.id)}
-                              className="p-1 text-gray-400 hover:text-primary"
+                              className="p-2 text-gray-400 hover:text-primary hover:bg-gray-100 rounded-lg transition-colors"
                               title="View draft"
                             >
                               <Eye className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteDraft(draft.id)}
-                              className="p-1 text-gray-400 hover:text-red-600"
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                               title="Delete draft"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -777,6 +818,29 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
           </div>
         </div>
 
+        </div>
+      </div>
+
+      {/* Sticky Moot Court Button */}
+      <div className="fixed bottom-20 right-6 z-40 flex flex-col items-center">
+        <div className="bg-gray-900 text-white px-3 py-1 rounded-lg text-sm font-medium mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          Moot Court
+        </div>
+        <button
+          onClick={handleMootCourtClick}
+          className="w-16 h-16 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-full hover:from-amber-600 hover:to-orange-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-110 group relative overflow-hidden flex items-center justify-center"
+          style={{
+            boxShadow: '0 0 15px rgba(245, 158, 11, 0.35), 0 0 30px rgba(245, 158, 11, 0.15)',
+            animation: 'pulse 4s infinite'
+          }}
+          title="Open Moot Court - Practice your arguments"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-400 to-orange-400 opacity-0 group-hover:opacity-20 transition-opacity duration-300 rounded-full"></div>
+          <Gavel className="h-6 w-6 relative z-10" />
+          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity duration-300 rounded-full"></div>
+        </button>
+        <div className="bg-gray-900 text-white px-3 py-1 rounded-lg text-sm font-medium mt-2">
+          Moot Court
         </div>
       </div>
 
