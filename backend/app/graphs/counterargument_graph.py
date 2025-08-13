@@ -11,6 +11,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
+from langgraph.config import get_stream_writer
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -70,6 +71,12 @@ async def rag_retrieval_node(state: CounterArgumentState) -> CounterArgumentStat
     This node performs multiple types of retrieval to find opposing precedents,
     distinguishing factors, and alternative legal interpretations.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Retrieving counterargument research",
+        "description": "Retrieving opposing precedents, distinguishing factors, and alternative legal interpretations for counterargument generation."
+    })
     logger.info("Starting RAG retrieval for counterargument generation")
     
     key_arguments = state["key_arguments"]
@@ -185,13 +192,19 @@ async def rag_retrieval_node(state: CounterArgumentState) -> CounterArgumentStat
     return state
 
 
-def vulnerability_analysis_node(state: CounterArgumentState) -> CounterArgumentState:
+async def vulnerability_analysis_node(state: CounterArgumentState) -> CounterArgumentState:
     """
     Vulnerability Analysis Node - Analyze argument weaknesses using retrieved knowledge.
     
     This node analyzes the user's arguments against the retrieved knowledge to identify
     potential vulnerabilities and weak points.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Analyzing vulnerabilities",
+        "description": "Analyzing user's arguments for weaknesses and vulnerabilities using retrieved precedents and procedural challenges."
+    })
     logger.info("Starting vulnerability analysis")
     
     key_arguments = state["key_arguments"]
@@ -262,13 +275,19 @@ def vulnerability_analysis_node(state: CounterArgumentState) -> CounterArgumentS
     return state
 
 
-def counterargument_generation_node(state: CounterArgumentState) -> CounterArgumentState:
+async def counterargument_generation_node(state: CounterArgumentState) -> CounterArgumentState:
     """
     CounterArgument Generation Node - Generate structured counterarguments using LLM.
     
     This node uses the retrieved knowledge and vulnerability analysis to generate
     comprehensive counterarguments with supporting rebuttals.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Generating counterarguments",
+        "description": "Generating structured counterarguments and rebuttals using LLM based on research and vulnerability analysis."
+    })
     logger.info("Starting counterargument generation")
     
     key_arguments = state["key_arguments"]
@@ -354,7 +373,7 @@ Generate practical counterarguments that a skilled opposing counsel would actual
         # Use structured output for reliable parsing
         structured_llm = llm.with_structured_output(CounterArgumentAnalysisOutput)
         
-        response = structured_llm.invoke([
+        response = await structured_llm.ainvoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ])

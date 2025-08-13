@@ -10,6 +10,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
+from langgraph.config import get_stream_writer
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -71,13 +72,19 @@ class RefinementPlanOutput(BaseModel):
     )
 
 
-def query_planner_node(state: ResearchState) -> ResearchState:
+async def query_planner_node(state: ResearchState) -> ResearchState:
     """
     Generate an initial search plan based on the user's query.
 
     This node analyzes the user's query to determine the best search strategy,
     extract key terms, and set appropriate filters.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Planning legal research",
+        "description": "Analyzing user query and generating an optimal search plan for legal precedent discovery."
+    })
     logger.info("Executing QueryPlannerNode")
 
     query_text = state["query_text"]
@@ -107,7 +114,7 @@ def query_planner_node(state: ResearchState) -> ResearchState:
             ]
         )
 
-        plan_output = structured_llm.invoke(
+        plan_output = await structured_llm.ainvoke(
             prompt_template.format_messages(
                 previous_plan=json.dumps(previous_plan, indent=2), feedback=feedback
             )
@@ -131,7 +138,7 @@ def query_planner_node(state: ResearchState) -> ResearchState:
             ]
         )
 
-        plan_output = structured_llm.invoke(prompt_template.format_messages())
+        plan_output = await structured_llm.ainvoke(prompt_template.format_messages())
 
     # Convert to dict for state storage
     plan = plan_output.model_dump()
@@ -168,6 +175,12 @@ async def retrieval_node(state: ResearchState) -> ResearchState:
     This node uses the Neo4j tools to retrieve relevant documents
     based on the current search plan.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Retrieving legal documents",
+        "description": "Retrieving relevant legal documents and precedents using the current search plan and strategy."
+    })
     logger.info("Executing RetrievalNode")
 
     search_params = state.get("search_params", {})
@@ -363,13 +376,19 @@ def assess_retrieval_node(state: ResearchState) -> str:
         return "refine_query"
 
 
-def query_refiner_node(state: ResearchState) -> ResearchState:
+async def query_refiner_node(state: ResearchState) -> ResearchState:
     """
     Refine the search query based on assessment feedback.
 
     This node takes the feedback from assessment and creates an improved
     search strategy to get better results.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Refining search strategy",
+        "description": "Refining the legal research strategy and search terms based on feedback from previous retrieval attempts."
+    })
     logger.info("Executing QueryRefinerNode")
 
     current_count = state.get("refinement_count", 0)
@@ -415,7 +434,7 @@ Create an improved search plan that addresses these issues.
         ]
     )
 
-    refined_plan_output = structured_llm.invoke(prompt_template.format_messages())
+    refined_plan_output = await structured_llm.ainvoke(prompt_template.format_messages())
     refined_plan = refined_plan_output.model_dump()
 
     # Update search parameters

@@ -27,6 +27,9 @@ class ResearchQueryRequest(BaseModel):
     max_results: Optional[int] = Field(
         15, description="Maximum number of results to return"
     )
+    stream: Optional[bool] = Field(
+        False, description="Enable streaming responses"
+    )
 
 
 class RetrievedDocument(BaseModel):
@@ -100,6 +103,9 @@ class ArgumentDraftRequest(BaseModel):
     )
     argument_preferences: Optional[Dict[str, Any]] = Field(
         None, description="User preferences for argument style/approach"
+    )
+    stream: Optional[bool] = Field(
+        False, description="Enable streaming responses"
     )
 
 
@@ -289,6 +295,9 @@ class EditDraftRequest(BaseModel):
     
     draft_id: int
     edit_instructions: str
+    stream: Optional[bool] = Field(
+        False, description="Enable streaming responses"
+    )
 
 
 class UpdateDraftRequest(BaseModel):
@@ -322,6 +331,9 @@ class GenerateCounterArgumentsRequest(BaseModel):
     
     case_file_id: int = Field(..., description="ID of the case file")
     draft_id: Optional[int] = Field(None, description="ID of specific draft to analyze")
+    stream: Optional[bool] = Field(
+        False, description="Enable streaming responses"
+    )
 
 
 class GenerateCounterArgumentsResponse(BaseModel):

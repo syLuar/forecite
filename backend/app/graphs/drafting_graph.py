@@ -10,6 +10,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
+from langgraph.config import get_stream_writer
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -101,12 +102,18 @@ class CritiqueOutput(BaseModel):
     )
 
 
-def strategist_node(state: DraftingState) -> DraftingState:
+async def strategist_node(state: DraftingState) -> DraftingState:
     """
     Generate or refine legal strategy based on facts and precedents.
     
     If this is an editing scenario, it will revise the existing draft based on edit instructions.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Developing legal strategy",
+        "description": "Analyzing facts and precedents to develop or revise a comprehensive legal strategy for the argument."
+    })
     logger.info("Strategist node: Analyzing case and developing strategy")
 
     user_facts = state["user_facts"]
@@ -271,7 +278,7 @@ RELEVANT LEGAL TESTS:
         [SystemMessage(content=system_prompt), HumanMessage(content=context_prompt)]
     )
 
-    strategy_output = structured_llm.invoke(
+    strategy_output = await structured_llm.ainvoke(
         prompt_template.format_messages(
             critique_feedback=critique_feedback if is_revision else ""
         )
@@ -335,7 +342,7 @@ RELEVANT LEGAL TESTS:
     return state
 
 
-def critique_node(state: DraftingState) -> str:
+async def critique_node(state: DraftingState) -> str:
     """
     Critique the proposed strategy and decide whether to approve or revise.
 
@@ -408,7 +415,7 @@ Provide a thorough critique of this legal strategy.
         [SystemMessage(content=system_prompt), HumanMessage(content=critique_prompt)]
     )
 
-    critique_output = structured_llm.invoke(prompt_template.format_messages())
+    critique_output = await structured_llm.ainvoke(prompt_template.format_messages())
     critique = critique_output.model_dump()
 
     # Update state with critique results
@@ -445,13 +452,19 @@ Provide a thorough critique of this legal strategy.
         return "revise_strategy"
 
 
-def drafting_team_node(state: DraftingState) -> DraftingState:
+async def drafting_team_node(state: DraftingState) -> DraftingState:
     """
     Execute the approved strategy to draft the final legal argument.
 
     This node takes the approved strategy and generates a well-structured
     legal argument with proper citations and reasoning.
     """
+    # Stream custom update
+    writer = get_stream_writer()
+    writer({
+        "brief_description": "Drafting legal argument",
+        "description": "Drafting a comprehensive legal argument using the approved strategy, facts, and case file."
+    })
     logger.info("Executing DraftingTeamNode")
 
     approved_strategy = state.get("proposed_strategy", {})
@@ -503,7 +516,7 @@ CASE FILE:
         [SystemMessage(content=system_prompt), HumanMessage(content=drafting_prompt)]
     )
 
-    response = llm.invoke(prompt_template.format_messages())
+    response = await llm.ainvoke(prompt_template.format_messages())
 
     drafted_argument = response.content
 

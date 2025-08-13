@@ -13,9 +13,11 @@ from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import uvicorn
 from google import genai
+import json
+import asyncio
 
 # from app.core.config import settings  # Uncomment when needed
 from app.models.schemas import (
@@ -124,7 +126,7 @@ async def global_exception_handler(request, exc):
         content=ErrorResponse(
             error="Internal server error",
             detail="An unexpected error occurred while processing your request",
-        ).dict(),
+        ).model_dump(),
     )
 
 
@@ -145,7 +147,7 @@ async def health_check():
     return HealthResponse(status="healthy", timestamp=datetime.now(), version="1.0.0")
 
 
-@app.post("/api/v1/research/query", response_model=ResearchQueryResponse)
+@app.post("/api/v1/research/query")
 async def research_query(request: ResearchQueryRequest):
     """
     Execute legal research query using the Research Graph.
@@ -173,28 +175,44 @@ async def research_query(request: ResearchQueryRequest):
         if request.date_range:
             initial_state["date_range"] = request.date_range
 
+        # Define response processor for streaming
+        async def process_research_response(final_state):
+            # Convert retrieved documents to response models
+            retrieved_docs = []
+            for doc in final_state.get("retrieved_docs", []):
+                retrieved_docs.append(RetrievedDocument(**doc))
+
+            execution_time = time.time() - start_time
+
+            response = ResearchQueryResponse(
+                retrieved_docs=retrieved_docs,
+                total_results=final_state.get("total_results", len(retrieved_docs)),
+                search_quality_score=final_state.get("search_quality_score"),
+                refinement_count=final_state.get("refinement_count", 0),
+                assessment_reason=final_state.get("assessment_reason"),
+                execution_time=execution_time,
+                search_history=final_state.get("search_history"),
+            )
+            return response.model_dump()
+
+        # Handle streaming vs non-streaming execution
+        if request.stream:
+            logger.info("Starting streaming research query execution")
+            return create_streaming_response(
+                stream_graph_with_final_response(
+                    research_graph, initial_state, process_research_response
+                )
+            )
+
         # Execute the research graph
         final_state = await research_graph.ainvoke(initial_state)
 
-        # Convert retrieved documents to response models
-        retrieved_docs = []
-        for doc in final_state.get("retrieved_docs", []):
-            retrieved_docs.append(RetrievedDocument(**doc))
-
-        execution_time = time.time() - start_time
-
-        response = ResearchQueryResponse(
-            retrieved_docs=retrieved_docs,
-            total_results=final_state.get("total_results", len(retrieved_docs)),
-            search_quality_score=final_state.get("search_quality_score"),
-            refinement_count=final_state.get("refinement_count", 0),
-            assessment_reason=final_state.get("assessment_reason"),
-            execution_time=execution_time,
-            search_history=final_state.get("search_history"),
-        )
+        # Use the same processing logic
+        response_dict = await process_research_response(final_state)
+        response = ResearchQueryResponse(**response_dict)
 
         logger.info(
-            f"Research query completed in {execution_time:.2f}s, found {len(retrieved_docs)} documents"
+            f"Research query completed in {response.execution_time:.2f}s, found {len(response.retrieved_docs)} documents"
         )
         return response
 
@@ -257,77 +275,93 @@ async def draft_argument(request: ArgumentDraftRequest):
         if request.additional_drafting_instructions:
             initial_state["additional_drafting_instructions"] = request.additional_drafting_instructions
 
+        # Define response processor for streaming
+        async def process_drafting_response(final_state):
+            execution_time = time.time() - start_time
+
+            # Extract strategy from final state
+            strategy_data = final_state.get("proposed_strategy", {})
+
+            # Convert to response format
+            from app.models.schemas import ArgumentStrategy, LegalArgument
+            import json
+
+            # Handle key_arguments - it might be a JSON string or already parsed list
+            key_arguments_raw = strategy_data.get("key_arguments", [])
+            if isinstance(key_arguments_raw, str):
+                try:
+                    key_arguments_list = json.loads(key_arguments_raw)
+                except (json.JSONDecodeError, TypeError):
+                    key_arguments_list = []
+            elif isinstance(key_arguments_raw, list):
+                key_arguments_list = key_arguments_raw
+            else:
+                key_arguments_list = []
+
+            # Ensure each argument has the required structure
+            parsed_arguments = []
+            for arg in key_arguments_list:
+                if isinstance(arg, dict) and all(
+                    key in arg
+                    for key in ["argument", "supporting_authority", "factual_basis"]
+                ):
+                    parsed_arguments.append(LegalArgument(**arg))
+                elif isinstance(arg, str):
+                    # Fallback: create a basic argument structure from string
+                    parsed_arguments.append(
+                        LegalArgument(
+                            argument=arg, supporting_authority="", factual_basis=""
+                        )
+                    )
+
+            strategy = ArgumentStrategy(
+                main_thesis=strategy_data.get("main_thesis", ""),
+                argument_type=strategy_data.get("argument_type", "precedential"),
+                primary_precedents=strategy_data.get("primary_precedents", []),
+                legal_framework=strategy_data.get("legal_framework", ""),
+                key_arguments=parsed_arguments,
+                anticipated_counterarguments=strategy_data.get(
+                    "anticipated_counterarguments", []
+                ),
+                counterargument_responses=strategy_data.get(
+                    "counterargument_responses", []
+                ),
+                strength_assessment=strategy_data.get("strength_assessment", 0.5),
+                risk_factors=strategy_data.get("risk_factors", []),
+                strategy_rationale=strategy_data.get("strategy_rationale", ""),
+            )
+
+            response = ArgumentDraftResponse(
+                strategy=strategy,
+                drafted_argument=final_state.get("drafted_argument", ""),
+                argument_structure=final_state.get("argument_structure", {}),
+                citations_used=final_state.get("citations_used", []),
+                argument_strength=final_state.get("argument_strength", 0.5),
+                precedent_coverage=final_state.get("precedent_coverage", 0.5),
+                logical_coherence=final_state.get("logical_coherence", 0.5),
+                total_critique_cycles=final_state.get("total_critique_cycles", 0),
+                revision_history=final_state.get("revision_history"),
+                execution_time=execution_time,
+            )
+            return response.model_dump()
+
+        # Handle streaming vs non-streaming execution
+        if request.stream:
+            logger.info("Starting streaming argument drafting execution")
+            return create_streaming_response(
+                stream_graph_with_final_response(
+                    drafting_graph, initial_state, process_drafting_response
+                )
+            )
+
         # Execute the drafting graph
         final_state = await drafting_graph.ainvoke(initial_state)
 
-        execution_time = time.time() - start_time
+        # Use the same processing logic
+        response_dict = await process_drafting_response(final_state)
+        response = ArgumentDraftResponse(**response_dict)
 
-        # Extract strategy from final state
-        strategy_data = final_state.get("proposed_strategy", {})
-
-        # Convert to response format
-        from app.models.schemas import ArgumentStrategy, LegalArgument
-        import json
-
-        # Handle key_arguments - it might be a JSON string or already parsed list
-        key_arguments_raw = strategy_data.get("key_arguments", [])
-        if isinstance(key_arguments_raw, str):
-            try:
-                key_arguments_list = json.loads(key_arguments_raw)
-            except (json.JSONDecodeError, TypeError):
-                key_arguments_list = []
-        elif isinstance(key_arguments_raw, list):
-            key_arguments_list = key_arguments_raw
-        else:
-            key_arguments_list = []
-
-        # Ensure each argument has the required structure
-        parsed_arguments = []
-        for arg in key_arguments_list:
-            if isinstance(arg, dict) and all(
-                key in arg
-                for key in ["argument", "supporting_authority", "factual_basis"]
-            ):
-                parsed_arguments.append(LegalArgument(**arg))
-            elif isinstance(arg, str):
-                # Fallback: create a basic argument structure from string
-                parsed_arguments.append(
-                    LegalArgument(
-                        argument=arg, supporting_authority="", factual_basis=""
-                    )
-                )
-
-        strategy = ArgumentStrategy(
-            main_thesis=strategy_data.get("main_thesis", ""),
-            argument_type=strategy_data.get("argument_type", "precedential"),
-            primary_precedents=strategy_data.get("primary_precedents", []),
-            legal_framework=strategy_data.get("legal_framework", ""),
-            key_arguments=parsed_arguments,
-            anticipated_counterarguments=strategy_data.get(
-                "anticipated_counterarguments", []
-            ),
-            counterargument_responses=strategy_data.get(
-                "counterargument_responses", []
-            ),
-            strength_assessment=strategy_data.get("strength_assessment", 0.5),
-            risk_factors=strategy_data.get("risk_factors", []),
-            strategy_rationale=strategy_data.get("strategy_rationale", ""),
-        )
-
-        response = ArgumentDraftResponse(
-            strategy=strategy,
-            drafted_argument=final_state.get("drafted_argument", ""),
-            argument_structure=final_state.get("argument_structure", {}),
-            citations_used=final_state.get("citations_used", []),
-            argument_strength=final_state.get("argument_strength", 0.5),
-            precedent_coverage=final_state.get("precedent_coverage", 0.5),
-            logical_coherence=final_state.get("logical_coherence", 0.5),
-            total_critique_cycles=final_state.get("total_critique_cycles", 0),
-            revision_history=final_state.get("revision_history"),
-            execution_time=execution_time,
-        )
-
-        logger.info(f"Argument drafting completed in {execution_time:.2f}s")
+        logger.info(f"Argument drafting completed in {response.execution_time:.2f}s")
         return response
 
     except Exception as e:
@@ -490,7 +524,7 @@ async def add_document_to_case_file(
     """Add a document to a case file."""
     try:
         success = CaseFileService.add_document_to_case_file(
-            case_file_id=case_file_id, document_data=request.dict()
+            case_file_id=case_file_id, document_data=request.model_dump()
         )
 
         if not success:
@@ -742,83 +776,100 @@ async def ai_edit_draft(request: EditDraftRequest):
         if draft.get("strategy"):
             initial_state["proposed_strategy"] = draft["strategy"]
 
+        # Define response processor for streaming
+        async def process_ai_edit_response(final_state):
+            execution_time = time.time() - start_time
+
+            # Extract strategy from final state
+            strategy_data = final_state.get("proposed_strategy", {})
+
+            # Convert to response format
+            from app.models.schemas import ArgumentStrategy, LegalArgument
+            import json
+
+            # Handle key_arguments - it might be a JSON string or already parsed list
+            key_arguments_raw = strategy_data.get("key_arguments", [])
+            if isinstance(key_arguments_raw, str):
+                try:
+                    key_arguments_list = json.loads(key_arguments_raw)
+                except (json.JSONDecodeError, TypeError):
+                    key_arguments_list = []
+            elif isinstance(key_arguments_raw, list):
+                key_arguments_list = key_arguments_raw
+            else:
+                key_arguments_list = []
+
+            # Ensure each argument has the required structure
+            parsed_arguments = []
+            for arg in key_arguments_list:
+                if isinstance(arg, dict) and all(
+                    key in arg
+                    for key in ["argument", "supporting_authority", "factual_basis"]
+                ):
+                    parsed_arguments.append(LegalArgument(**arg))
+                elif isinstance(arg, str):
+                    # Fallback: create a basic argument structure from string
+                    parsed_arguments.append(
+                        LegalArgument(
+                            argument=arg, supporting_authority="", factual_basis=""
+                        )
+                    )
+
+            strategy = ArgumentStrategy(
+                main_thesis=strategy_data.get("main_thesis", ""),
+                argument_type=strategy_data.get("argument_type", "precedential"),
+                primary_precedents=strategy_data.get("primary_precedents", []),
+                legal_framework=strategy_data.get("legal_framework", ""),
+                key_arguments=parsed_arguments,
+                anticipated_counterarguments=strategy_data.get(
+                    "anticipated_counterarguments", []
+                ),
+                counterargument_responses=strategy_data.get(
+                    "counterargument_responses", []
+                ),
+                strength_assessment=strategy_data.get("strength_assessment", 0.5),
+                risk_factors=strategy_data.get("risk_factors", []),
+                strategy_rationale=strategy_data.get("strategy_rationale", ""),
+            )
+
+            response = ArgumentDraftResponse(
+                strategy=strategy,
+                drafted_argument=final_state.get("drafted_argument", ""),
+                argument_structure=final_state.get("argument_structure", {}),
+                citations_used=final_state.get("citations_used", []),
+                argument_strength=final_state.get("argument_strength", 0.5),
+                precedent_coverage=final_state.get("precedent_coverage", 0.5),
+                logical_coherence=final_state.get("logical_coherence", 0.5),
+                total_critique_cycles=final_state.get("total_critique_cycles", 0),
+                revision_history=final_state.get("revision_history"),
+                execution_time=execution_time,
+            )
+
+            # Update the draft in the database
+            ArgumentDraftService.update_draft_with_response(
+                draft_id=request.draft_id,
+                draft_response=response
+            )
+
+            return response.model_dump()
+
+        # Handle streaming vs non-streaming execution
+        if request.stream:
+            logger.info("Starting streaming AI draft editing execution")
+            return create_streaming_response(
+                stream_graph_with_final_response(
+                    drafting_graph, initial_state, process_ai_edit_response
+                )
+            )
+
         # Execute the drafting graph for editing
         final_state = await drafting_graph.ainvoke(initial_state)
 
-        execution_time = time.time() - start_time
+        # Use the same processing logic
+        response_dict = await process_ai_edit_response(final_state)
+        response = ArgumentDraftResponse(**response_dict)
 
-        # Extract strategy from final state
-        strategy_data = final_state.get("proposed_strategy", {})
-
-        # Convert to response format
-        from app.models.schemas import ArgumentStrategy, LegalArgument
-        import json
-
-        # Handle key_arguments - it might be a JSON string or already parsed list
-        key_arguments_raw = strategy_data.get("key_arguments", [])
-        if isinstance(key_arguments_raw, str):
-            try:
-                key_arguments_list = json.loads(key_arguments_raw)
-            except (json.JSONDecodeError, TypeError):
-                key_arguments_list = []
-        elif isinstance(key_arguments_raw, list):
-            key_arguments_list = key_arguments_raw
-        else:
-            key_arguments_list = []
-
-        # Ensure each argument has the required structure
-        parsed_arguments = []
-        for arg in key_arguments_list:
-            if isinstance(arg, dict) and all(
-                key in arg
-                for key in ["argument", "supporting_authority", "factual_basis"]
-            ):
-                parsed_arguments.append(LegalArgument(**arg))
-            elif isinstance(arg, str):
-                # Fallback: create a basic argument structure from string
-                parsed_arguments.append(
-                    LegalArgument(
-                        argument=arg, supporting_authority="", factual_basis=""
-                    )
-                )
-
-        strategy = ArgumentStrategy(
-            main_thesis=strategy_data.get("main_thesis", ""),
-            argument_type=strategy_data.get("argument_type", "precedential"),
-            primary_precedents=strategy_data.get("primary_precedents", []),
-            legal_framework=strategy_data.get("legal_framework", ""),
-            key_arguments=parsed_arguments,
-            anticipated_counterarguments=strategy_data.get(
-                "anticipated_counterarguments", []
-            ),
-            counterargument_responses=strategy_data.get(
-                "counterargument_responses", []
-            ),
-            strength_assessment=strategy_data.get("strength_assessment", 0.5),
-            risk_factors=strategy_data.get("risk_factors", []),
-            strategy_rationale=strategy_data.get("strategy_rationale", ""),
-        )
-
-        response = ArgumentDraftResponse(
-            strategy=strategy,
-            drafted_argument=final_state.get("drafted_argument", ""),
-            argument_structure=final_state.get("argument_structure", {}),
-            citations_used=final_state.get("citations_used", []),
-            argument_strength=final_state.get("argument_strength", 0.5),
-            precedent_coverage=final_state.get("precedent_coverage", 0.5),
-            logical_coherence=final_state.get("logical_coherence", 0.5),
-            total_critique_cycles=final_state.get("total_critique_cycles", 0),
-            revision_history=final_state.get("revision_history"),
-            execution_time=execution_time,
-        )
-
-        # Update the draft in the database
-        ArgumentDraftService.update_draft_with_response(
-            draft_id=request.draft_id,
-            draft_response=response
-        )
-
-        logger.info(f"AI draft editing completed in {execution_time:.2f}s")
+        logger.info(f"AI draft editing completed in {response.execution_time:.2f}s")
         return response
 
     except Exception as e:
@@ -895,56 +946,73 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
         
         if request.draft_id:
             initial_state["draft_id"] = request.draft_id
+
+        # Define response processor for streaming
+        async def process_counterargument_response(final_state):
+            # Extract results from the final state
+            counterarguments = final_state.get("generated_counterarguments", [])
+            rebuttals = final_state.get("counterargument_rebuttals", [])
+            
+            # Convert to response format
+            response_counterarguments = []
+            for ca in counterarguments:
+                response_counterarguments.append(CounterArgument(
+                    title=ca.get("title", ""),
+                    argument=ca.get("argument", ""),
+                    supporting_authority=ca.get("supporting_authority", ""),
+                    factual_basis=ca.get("factual_basis", ""),
+                    strength_assessment=ca.get("strength_assessment")
+                ))
+            
+            response_rebuttals = []
+            for rebuttal_group in rebuttals:
+                group = []
+                for reb in rebuttal_group:
+                    group.append(CounterArgumentRebuttal(
+                        title=reb.get("title", ""),
+                        content=reb.get("content", ""),
+                        authority=reb.get("authority", "")
+                    ))
+                response_rebuttals.append(group)
+            
+            execution_time = time.time() - start_time
+            
+            response = GenerateCounterArgumentsResponse(
+                counterarguments=response_counterarguments,
+                rebuttals=response_rebuttals,
+                execution_time=execution_time
+            )
+            
+            # Log RAG retrieval statistics
+            research_comprehensiveness = final_state.get("research_comprehensiveness", 0.0)
+            counterargument_strength = final_state.get("counterargument_strength", 0.0)
+            rebuttal_quality = final_state.get("rebuttal_quality", 0.0)
+            
+            logger.info(
+                f"RAG counterargument generation completed in {execution_time:.2f}s. "
+                f"Research comprehensiveness: {research_comprehensiveness:.2f}, "
+                f"Counterargument strength: {counterargument_strength:.2f}, "
+                f"Rebuttal quality: {rebuttal_quality:.2f}"
+            )
+            
+            return response.model_dump()
+        
+        # Handle streaming vs non-streaming execution
+        if request.stream:
+            logger.info("Starting streaming counterargument generation execution")
+            return create_streaming_response(
+                stream_graph_with_final_response(
+                    counterargument_graph, initial_state, process_counterargument_response
+                )
+            )
         
         # Execute the counterargument graph workflow
         logger.info("Executing RAG-based counterargument generation workflow")
         final_state = await counterargument_graph.ainvoke(initial_state)
         
-        # Extract results from the final state
-        counterarguments = final_state.get("generated_counterarguments", [])
-        rebuttals = final_state.get("counterargument_rebuttals", [])
-        
-        # Convert to response format
-        response_counterarguments = []
-        for ca in counterarguments:
-            response_counterarguments.append(CounterArgument(
-                title=ca.get("title", ""),
-                argument=ca.get("argument", ""),
-                supporting_authority=ca.get("supporting_authority", ""),
-                factual_basis=ca.get("factual_basis", ""),
-                strength_assessment=ca.get("strength_assessment")
-            ))
-        
-        response_rebuttals = []
-        for rebuttal_group in rebuttals:
-            group = []
-            for reb in rebuttal_group:
-                group.append(CounterArgumentRebuttal(
-                    title=reb.get("title", ""),
-                    content=reb.get("content", ""),
-                    authority=reb.get("authority", "")
-                ))
-            response_rebuttals.append(group)
-        
-        execution_time = time.time() - start_time
-        
-        response = GenerateCounterArgumentsResponse(
-            counterarguments=response_counterarguments,
-            rebuttals=response_rebuttals,
-            execution_time=execution_time
-        )
-        
-        # Log RAG retrieval statistics
-        research_comprehensiveness = final_state.get("research_comprehensiveness", 0.0)
-        counterargument_strength = final_state.get("counterargument_strength", 0.0)
-        rebuttal_quality = final_state.get("rebuttal_quality", 0.0)
-        
-        logger.info(
-            f"RAG counterargument generation completed in {execution_time:.2f}s. "
-            f"Research comprehensiveness: {research_comprehensiveness:.2f}, "
-            f"Counterargument strength: {counterargument_strength:.2f}, "
-            f"Rebuttal quality: {rebuttal_quality:.2f}"
-        )
+        # Use the same processing logic
+        response_dict = await process_counterargument_response(final_state)
+        response = GenerateCounterArgumentsResponse(**response_dict)
         
         return response
         
@@ -961,8 +1029,8 @@ async def save_moot_court_session(request: SaveMootCourtSessionRequest):
     """Save a moot court session to the database."""
     try:
         # Convert Pydantic models to dict format for storage
-        counterarguments_data = [ca.dict() for ca in request.counterarguments]
-        rebuttals_data = [[reb.dict() for reb in group] for group in request.rebuttals]
+        counterarguments_data = [ca.model_dump() for ca in request.counterarguments]
+        rebuttals_data = [[reb.model_dump() for reb in group] for group in request.rebuttals]
         
         session_id = MootCourtSessionService.save_session(
             case_file_id=request.case_file_id,
@@ -1156,6 +1224,74 @@ async def get_citation_network(case_citation: str, direction: str = "both"):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Citation network analysis failed: {str(e)}",
         )
+
+
+# Streaming helper function
+async def stream_graph_with_final_response(graph, initial_state, response_processor, chunk_processor=None, stream_mode=["values", "custom"]):
+    """
+    Stream the execution of a LangGraph and send a final processed response.
+    
+    Args:
+        graph: The LangGraph to execute
+        initial_state: Initial state for the graph
+        response_processor: Function that takes final_state and returns processed response
+        stream_mode: Stream mode for the graph execution
+    """
+    final_state = None
+    if chunk_processor is None:
+        async def chunk_processor(chunk):
+            processed_chunk = {}
+            stream_type = stream_mode
+            if isinstance(chunk, tuple):
+                stream_type, chunk = chunk
+            for key, value in chunk.items():
+                if isinstance(value, list):
+                    processed_chunk[f"{key}_len"] = len(value)
+                else:
+                    processed_chunk[key] = value
+            if stream_type:
+                processed_chunk = {
+                    "stream_type": stream_type,
+                    "data": processed_chunk
+                }
+            return processed_chunk
+            
+    # Stream the graph execution
+    async for chunk in graph.astream(initial_state, stream_mode=stream_mode):
+        yield f"data: {json.dumps(await chunk_processor(chunk), default=str)}\n\n"
+        # Keep track of the final state
+        if isinstance(chunk, tuple):
+            _stream_type, chunk = chunk
+        if isinstance(chunk, dict):
+            final_state = chunk
+    
+    # Process the final response
+    if final_state and response_processor:
+        try:
+            processed_response = await response_processor(final_state)
+            final_chunk = {
+                "streaming_complete": True,
+                "final_response": processed_response
+            }
+            yield f"data: {json.dumps(final_chunk, default=str)}\n\n"
+        except Exception as e:
+            error_chunk = {
+                "streaming_complete": True,
+                "error": str(e)
+            }
+            yield f"data: {json.dumps(error_chunk, default=str)}\n\n"
+
+def create_streaming_response(generator):
+    """Create a streaming response from an async generator."""
+    return StreamingResponse(
+        generator,
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream"
+        }
+    )
 
 
 if __name__ == "__main__":
