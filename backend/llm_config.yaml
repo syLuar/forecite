@@ -25,3 +25,7 @@ main:
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
+  counterargument: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0

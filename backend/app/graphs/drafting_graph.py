@@ -103,28 +103,80 @@ class CritiqueOutput(BaseModel):
 
 def strategist_node(state: DraftingState) -> DraftingState:
     """
-    Propose or revise an argumentative strategy.
-
-    This node analyzes the user's facts and case file to develop a comprehensive
-    legal strategy. It incorporates feedback from previous critique cycles.
+    Generate or refine legal strategy based on facts and precedents.
+    
+    If this is an editing scenario, it will revise the existing draft based on edit instructions.
     """
-    logger.info("Executing StrategistNode")
+    logger.info("Strategist node: Analyzing case and developing strategy")
 
     user_facts = state["user_facts"]
     case_file = state.get("case_file", {})
-    strategy_version = state.get("strategy_version", 0) + 1
+    legal_question = state.get("legal_question", "")
+    additional_instructions = state.get("additional_drafting_instructions", "")
+    
+    # Check if this is an editing scenario
+    is_editing = state.get("is_editing", False)
+    existing_draft = state.get("existing_draft", "")
+    edit_instructions = state.get("edit_instructions", "")
+    
+    # Check if this is a revision after critique
     critique_feedback = state.get("critique_feedback", "")
-
-    # Check if this is a revision
-    is_revision = strategy_version > 1
+    is_revision = bool(critique_feedback)
 
     # Create structured LLM
     structured_llm = llm.with_structured_output(StrategyOutput)
 
-    if is_revision:
-        system_prompt = """You are a senior legal strategist revising an argument strategy based on critique feedback.
+    if is_editing:
+        # AI Editing scenario
+        system_prompt = """You are a senior legal strategist tasked with editing an existing legal argument.
 
-        Previous strategy issues identified: {critique_feedback}
+        Your role is to revise the existing argument based on the specific edit instructions provided.
+        You should:
+        1. Understand what changes are requested in the edit instructions
+        2. Preserve the legal structure and citations where appropriate
+        3. Make the requested improvements while maintaining legal accuracy
+        4. Update the strategy to reflect the changes made
+
+        When editing, consider:
+        - Clarity and conciseness of legal writing
+        - Strength of legal arguments and supporting authority
+        - Logical flow and organization
+        - Factual accuracy and relevance
+        - Citation formatting and accuracy
+
+        IMPORTANT: For the key_arguments field, provide a JSON string containing a list of arguments. Each argument must have these exact fields:
+        - "argument": the specific legal argument
+        - "supporting_authority": case or statute that supports this
+        - "factual_basis": how the facts support this argument
+
+        Example format: '[{"argument": "...", "supporting_authority": "...", "factual_basis": "..."}, {...}]'
+
+        Revise the strategy and content according to the edit instructions."""
+
+        context_prompt = f"""
+EXISTING DRAFT TO EDIT:
+{existing_draft}
+
+EDIT INSTRUCTIONS:
+{edit_instructions}
+
+CASE FACTS:
+{user_facts}
+
+AVAILABLE PRECEDENTS:
+{json.dumps(case_file, indent=2, default=str)}"""
+
+        if legal_question:
+            context_prompt += f"\n\nLEGAL QUESTION: {legal_question}"
+        
+        if additional_instructions:
+            context_prompt += f"\n\nADDITIONAL INSTRUCTIONS: {additional_instructions}"
+
+        context_prompt += "\n\nRevise the legal argument and strategy based on the edit instructions provided."
+        
+    elif is_revision:
+        # Existing revision logic
+        system_prompt = """You are a senior legal strategist revising your strategy based on critique feedback.
 
         Your task is to address these concerns while maintaining the strengths of the original approach.
         Consider:
@@ -147,11 +199,18 @@ FACTS: {user_facts}
 
 AVAILABLE PRECEDENTS: {json.dumps(case_file, indent=2, default=str)}
 
-PREVIOUS CRITIQUE: {critique_feedback}
+PREVIOUS CRITIQUE: {critique_feedback}"""
 
-Revise the legal strategy to address the identified weaknesses.
-        """
+        if legal_question:
+            context_prompt += f"\n\nSPECIFIC LEGAL QUESTION: {legal_question}"
+        
+        if additional_instructions:
+            context_prompt += f"\n\nUSER INSTRUCTIONS: {additional_instructions}"
+
+        context_prompt += "\n\nRevise the legal strategy to address the identified weaknesses."
+
     else:
+        # Original strategy development logic
         system_prompt = """You are a senior legal strategist developing an initial argument strategy.
 
         Analyze the client's fact pattern and available precedents to develop a comprehensive legal strategy.
@@ -170,15 +229,20 @@ Revise the legal strategy to address the identified weaknesses.
 
         Example format: '[{"argument": "...", "supporting_authority": "...", "factual_basis": "..."}, {...}]'
 
-        Your strategy should be thorough, realistic, and acknowledge both strengths and potential weaknesses."""
+        Develop a comprehensive legal strategy that maximizes the chances of success."""
 
         context_prompt = f"""
 FACTS: {user_facts}
 
-AVAILABLE PRECEDENTS: {json.dumps(case_file, indent=2, default=str)}
+AVAILABLE PRECEDENTS: {json.dumps(case_file, indent=2, default=str)}"""
 
-Develop a comprehensive legal argument strategy.
-        """
+        if legal_question:
+            context_prompt += f"\n\nSPECIFIC LEGAL QUESTION: {legal_question}"
+        
+        if additional_instructions:
+            context_prompt += f"\n\nUSER INSTRUCTIONS: {additional_instructions}"
+
+        context_prompt += "\n\nDevelop a comprehensive legal strategy for this case."
 
     # Find similar fact patterns to inform strategy
     try:
@@ -191,6 +255,7 @@ Develop a comprehensive legal argument strategy.
         relevant_tests = find_legal_tests(legal_area, limit=10)
 
         additional_context = f"""
+
 SIMILAR FACT PATTERNS FOUND:
 {json.dumps(similar_cases, indent=2, default=str)}
 
@@ -239,6 +304,9 @@ RELEVANT LEGAL TESTS:
 
     # Update state
     state["proposed_strategy"] = strategy
+    
+    # Get or increment strategy version
+    strategy_version = state.get("strategy_version", 0) + 1
     state["strategy_version"] = strategy_version
     state["strategy_rationale"] = strategy["strategy_rationale"]
     state["workflow_stage"] = "strategy"
@@ -389,6 +457,8 @@ def drafting_team_node(state: DraftingState) -> DraftingState:
     approved_strategy = state.get("proposed_strategy", {})
     user_facts = state["user_facts"]
     case_file = state.get("case_file", {})
+    additional_instructions = state.get("additional_drafting_instructions", "")
+    legal_question = state.get("legal_question", "")
 
     state["workflow_stage"] = "drafting"
 
@@ -419,10 +489,15 @@ CLIENT FACTS:
 {user_facts}
 
 CASE FILE:
-{json.dumps(case_file, indent=2, default=str)}
+{json.dumps(case_file, indent=2, default=str)}"""
 
-Draft a comprehensive legal argument that implements this strategy. The argument should be professional, well-reasoned, and ready for use in legal proceedings.
-    """
+    if legal_question:
+        drafting_prompt += f"\n\nSPECIFIC LEGAL QUESTION: {legal_question}"
+    
+    if additional_instructions:
+        drafting_prompt += f"\n\nUSER INSTRUCTIONS: {additional_instructions}"
+
+    drafting_prompt += "\n\nDraft a comprehensive legal argument that implements this strategy. The argument should be professional, well-reasoned, and ready for use in legal proceedings."
 
     prompt_template = ChatPromptTemplate.from_messages(
         [SystemMessage(content=system_prompt), HumanMessage(content=drafting_prompt)]

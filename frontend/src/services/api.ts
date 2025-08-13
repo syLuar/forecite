@@ -119,6 +119,26 @@ class ApiClient {
     });
   }
 
+  async updateDraft(draftId: number, updatedContent: string, title?: string): Promise<{ success: boolean }> {
+    return this.request(`/api/v1/drafts/${draftId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ 
+        drafted_argument: updatedContent,
+        title: title
+      }),
+    });
+  }
+
+  async editDraftWithAI(draftId: number, editInstructions: string): Promise<any> {
+    return this.request('/api/v1/drafts/ai-edit', {
+      method: 'POST',
+      body: JSON.stringify({
+        draft_id: draftId,
+        edit_instructions: editInstructions
+      }),
+    });
+  }
+
   async listDraftsForCaseFile(caseFileId: number): Promise<any[]> {
     return this.request(`/api/v1/case-files/${caseFileId}/drafts`);
   }
@@ -130,6 +150,45 @@ class ApiClient {
   async deleteDraft(draftId: number): Promise<{ success: boolean }> {
     return this.request(`/api/v1/drafts/${draftId}`, {
       method: 'DELETE',
+    });
+  }
+
+  // Moot Court methods
+  async generateCounterArguments(caseFileId: number, draftId?: number): Promise<any> {
+    return this.request('/api/v1/moot-court/generate-counterarguments', {
+      method: 'POST',
+      body: JSON.stringify({
+        case_file_id: caseFileId,
+        draft_id: draftId
+      }),
+    });
+  }
+
+  async saveMootCourtSession(request: any): Promise<{ session_id: number }> {
+    return this.request('/api/v1/moot-court/save-session', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async listMootCourtSessionsForCaseFile(caseFileId: number): Promise<any[]> {
+    return this.request(`/api/v1/case-files/${caseFileId}/moot-court-sessions`);
+  }
+
+  async getMootCourtSession(sessionId: number): Promise<any> {
+    return this.request(`/api/v1/moot-court-sessions/${sessionId}`);
+  }
+
+  async deleteMootCourtSession(sessionId: number): Promise<{ success: boolean }> {
+    return this.request(`/api/v1/moot-court-sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async updateMootCourtSessionTitle(sessionId: number, title: string): Promise<{ success: boolean }> {
+    return this.request(`/api/v1/moot-court-sessions/${sessionId}/title`, {
+      method: 'PUT',
+      body: JSON.stringify({ title }),
     });
   }
 

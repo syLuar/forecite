@@ -40,8 +40,6 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successDetails, setSuccessDetails] = useState({ title: '', message: '' });
   const [showMootCourt, setShowMootCourt] = useState(false);
-  const [showMootCourtSessions, setShowMootCourtSessions] = useState(false);
-  const [viewingMootCourtSession, setViewingMootCourtSession] = useState<number | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({
     title: '',
@@ -258,37 +256,13 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     setShowMootCourt(true);
   };
 
-  const handleMootCourtSessionsClick = () => {
-    setShowMootCourtSessions(true);
-  };
-
-  const handleViewMootCourtSession = (sessionId: number) => {
-    if (sessionId === -1) {
-      // -1 indicates new session
-      setShowMootCourtSessions(false);
-      setShowMootCourt(true);
-    } else {
-      setViewingMootCourtSession(sessionId);
-      setShowMootCourtSessions(false);
-    }
-  };
-
-  const handleBackFromMootCourtSessions = () => {
-    setShowMootCourtSessions(false);
-    setViewingMootCourtSession(null);
-  };
-
-  const handleBackFromMootCourtSession = () => {
-    setViewingMootCourtSession(null);
-    setShowMootCourtSessions(true);
-  };
-
-  // Missing function definitions
   const handleEditCaseFile = () => {
+    if (!caseFile) return;
+
     setEditForm({
-      title: caseFile?.title || '',
-      description: caseFile?.description || '',
-      user_facts: caseFile?.user_facts || ''
+      title: caseFile.title,
+      description: caseFile.description || '',
+      user_facts: caseFile.user_facts || '',
     });
     setShowEditModal(true);
   };
@@ -298,21 +272,9 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
 
     setIsUpdating(true);
     try {
-      await apiClient.updateCaseFile(caseFileId, {
-        title: editForm.title,
-        description: editForm.description,
-        user_facts: editForm.user_facts
-      });
-      
-      // Reload case file data
-      await loadCaseFileData();
+      await apiClient.updateCaseFile(caseFileId, editForm);
       setShowEditModal(false);
-      
-      setSuccessDetails({
-        title: 'Case File Updated',
-        message: 'Your case file has been successfully updated.'
-      });
-      setShowSuccessModal(true);
+      loadCaseFileData();
     } catch (error) {
       console.error('Failed to update case file:', error);
       alert('Failed to update case file. Please try again.');
@@ -321,53 +283,43 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     }
   };
 
+  // Handle draft editing functions
   const handleStartEditDraft = (draft: SavedArgumentDraft) => {
-    setEditedDraftContent(draft.drafted_argument);
     setEditingDraftId(draft.id);
+    setEditedDraftContent(draft.drafted_argument);
     setIsEditingDraft(true);
-  };
-
-  const handleStartAIEdit = (draft: SavedArgumentDraft) => {
-    setEditedDraftContent(draft.drafted_argument);
-    setEditingDraftId(draft.id);
-    setShowAIEditModal(true);
-  };
-
-  const handleSaveEditedDraft = async () => {
-    if (!editingDraftId || !editedDraftContent.trim()) return;
-
-    setIsUpdating(true);
-    try {
-      await apiClient.updateDraft(editingDraftId, editedDraftContent);
-      
-      // Reload drafts and update viewing draft if it's the same one
-      await loadCaseFileData();
-      if (viewingDraft && viewingDraft.id === editingDraftId) {
-        const updatedDraft = await apiClient.getDraft(editingDraftId);
-        setViewingDraft(updatedDraft);
-      }
-      
-      setIsEditingDraft(false);
-      setEditingDraftId(null);
-      setEditedDraftContent('');
-      
-      setSuccessDetails({
-        title: 'Draft Updated',
-        message: 'Your draft has been successfully updated.'
-      });
-      setShowSuccessModal(true);
-    } catch (error) {
-      console.error('Failed to update draft:', error);
-      alert('Failed to update draft. Please try again.');
-    } finally {
-      setIsUpdating(false);
-    }
   };
 
   const handleCancelEditDraft = () => {
     setIsEditingDraft(false);
-    setEditingDraftId(null);
     setEditedDraftContent('');
+    setEditingDraftId(null);
+  };
+
+  const handleSaveEditedDraft = async () => {
+    if (!editingDraftId) return;
+
+    try {
+      await apiClient.updateDraft(editingDraftId, editedDraftContent);
+      setIsEditingDraft(false);
+      setEditedDraftContent('');
+      setEditingDraftId(null);
+      // Reload the draft to show updated content
+      if (viewingDraft) {
+        const updatedDraft = await apiClient.getDraft(editingDraftId);
+        setViewingDraft(updatedDraft);
+      }
+      await loadCaseFileData(); // Refresh drafts list
+    } catch (error) {
+      console.error('Failed to save edited draft:', error);
+      alert('Failed to save changes. Please try again.');
+    }
+  };
+
+  const handleStartAIEdit = (draft: SavedArgumentDraft) => {
+    setEditingDraftId(draft.id);
+    setEditedDraftContent(draft.drafted_argument);
+    setShowAIEditModal(true);
   };
 
   const handleAIEdit = async (editInstructions: string) => {
@@ -375,26 +327,22 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
 
     setIsAIEditing(true);
     try {
-      const response = await apiClient.editDraftWithAI(editingDraftId, editInstructions);
+      const editedDraft = await apiClient.editDraftWithAI(editingDraftId, editInstructions);
+      setEditedDraftContent(editedDraft.drafted_argument);
+      setShowAIEditModal(false);
       
-      // Reload drafts and update viewing draft if it's the same one
-      await loadCaseFileData();
+      // Update the viewing draft if it's the same one being edited
       if (viewingDraft && viewingDraft.id === editingDraftId) {
-        const updatedDraft = await apiClient.getDraft(editingDraftId);
-        setViewingDraft(updatedDraft);
+        setViewingDraft({
+          ...viewingDraft,
+          drafted_argument: editedDraft.drafted_argument
+        });
       }
       
-      setShowAIEditModal(false);
-      setEditingDraftId(null);
-      
-      setSuccessDetails({
-        title: 'AI Edit Completed',
-        message: 'Your draft has been successfully edited with AI assistance.'
-      });
-      setShowSuccessModal(true);
+      await loadCaseFileData(); // Refresh drafts list
     } catch (error) {
-      console.error('Failed to edit draft with AI:', error);
-      alert('Failed to edit draft with AI. Please try again.');
+      console.error('AI editing failed:', error);
+      alert('AI editing failed. Please try again.');
     } finally {
       setIsAIEditing(false);
     }
@@ -431,40 +379,6 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     );
   }
 
-  // Show MootCourt component
-  if (showMootCourt) {
-    return (
-      <MootCourt
-        caseFileId={caseFileId}
-        caseFileTitle={caseFile.title}
-        onBack={() => setShowMootCourt(false)}
-      />
-    );
-  }
-
-  // Show MootCourtSessionsList component
-  if (showMootCourtSessions) {
-    return (
-      <MootCourtSessionsList
-        caseFileId={caseFileId}
-        caseFileTitle={caseFile.title}
-        onBack={handleBackFromMootCourtSessions}
-        onViewSession={handleViewMootCourtSession}
-      />
-    );
-  }
-
-  // Show MootCourtSessionViewer component
-  if (viewingMootCourtSession) {
-    return (
-      <MootCourtSessionViewer
-        sessionId={viewingMootCourtSession}
-        caseFileTitle={caseFile.title}
-        onBack={handleBackFromMootCourtSession}
-      />
-    );
-  }
-  
   // Show argument draft view or document view
   if (showArgumentDraft && (draftedArgument || viewingDraft || viewingDocument)) {
     const currentDraft = viewingDraft || draftedArgument;
@@ -473,7 +387,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     // If viewing a document, show document view
     if (currentDocument) {
       return (
-        <div>
+        <>
           <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
           <div className="max-w-6xl mx-auto">
             {/* Header with back button */}
@@ -655,7 +569,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             onEdit={handleAIEdit}
             isEditing={isAIEditing}
           />
-        </div>
+        </>
       );
     }
     
@@ -665,169 +579,169 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     return (
       <>
         <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
-          <div className="max-w-6xl mx-auto">
-            {/* Header with back button */}
-            <div className="flex items-center justify-between mb-8">
-              <button
-                onClick={() => {
-                  setShowArgumentDraft(false);
-                  setViewingDraft(null);
-                  setDraftedArgument(null);
-                  setViewingDocument(null);
-                }}
-                className="flex items-center text-primary hover:text-primary-700 font-medium"
-              >
-                <ArrowLeft className="h-5 w-5 mr-2" />
-                Back to Case File
-              </button>
-              <div className="text-right">
-                <h1 className="text-2xl font-bold text-gray-900">
-                  {viewingDraft ? viewingDraft.title : 'Legal Argument Draft'}
-                </h1>
-                <p className="text-gray-600">
-                  {viewingDraft 
-                    ? `Created: ${formatDate(viewingDraft.created_at)}`
-                    : `Generated in ${draftedArgument?.execution_time?.toFixed(2)}s`
-                  }
-                </p>
-              </div>
+        <div className="max-w-6xl mx-auto">
+          {/* Header with back button */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={() => {
+                setShowArgumentDraft(false);
+                setViewingDraft(null);
+                setDraftedArgument(null);
+                setViewingDocument(null);
+              }}
+              className="flex items-center text-primary hover:text-primary-700 font-medium"
+            >
+              <ArrowLeft className="h-5 w-5 mr-2" />
+              Back to Case File
+            </button>
+            <div className="text-right">
+              <h1 className="text-2xl font-bold text-gray-900">
+                {viewingDraft ? viewingDraft.title : 'Legal Argument Draft'}
+              </h1>
+              <p className="text-gray-600">
+                {viewingDraft 
+                  ? `Created: ${formatDate(viewingDraft.created_at)}`
+                  : `Generated in ${draftedArgument?.execution_time?.toFixed(2)}s`
+                }
+              </p>
             </div>
+          </div>
 
-            {/* Strategy Summary */}
-            {currentDraft.strategy && (
-              <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Strategy Overview</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Main Thesis</h4>
-                    <p className="text-gray-700">{currentDraft.strategy.main_thesis}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Argument Type</h4>
-                    <p className="text-gray-700 capitalize">{currentDraft.strategy.argument_type}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Strength Assessment</h4>
-                    <p className="text-gray-700">{formatScore(currentDraft.argument_strength)}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Precedent Coverage</h4>
-                    <p className="text-gray-700">{formatScore(currentDraft.precedent_coverage)}</p>
-                  </div>
+          {/* Strategy Summary */}
+          {currentDraft.strategy && (
+            <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Strategy Overview</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Main Thesis</h4>
+                  <p className="text-gray-700">{currentDraft.strategy.main_thesis}</p>
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Argument Type</h4>
+                  <p className="text-gray-700 capitalize">{currentDraft.strategy.argument_type}</p>
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Strength Assessment</h4>
+                  <p className="text-gray-700">{formatScore(currentDraft.argument_strength)}</p>
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Precedent Coverage</h4>
+                  <p className="text-gray-700">{formatScore(currentDraft.precedent_coverage)}</p>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Drafted Argument */}
-            <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-gray-200">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Legal Argument</h3>
-                <div className="flex items-center gap-3">
-                  {/* Edit buttons for saved drafts */}
-                  {viewingDraft && !isEditingDraft && (
-                    <>
-                      <button
-                        onClick={() => handleStartEditDraft(viewingDraft)}
-                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        <PenTool className="h-4 w-4 mr-2" />
-                        Manual Edit
-                      </button>
-                      <button
-                        onClick={() => handleStartAIEdit(viewingDraft)}
-                        className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                      >
-                        <Bot className="h-4 w-4 mr-2" />
-                        AI Edit
-                      </button>
-                    </>
-                  )}
-                  
-                  {/* Save/Cancel buttons for manual editing */}
-                  {isEditingDraft && (
-                    <>
-                      <button
-                        onClick={handleSaveEditedDraft}
-                        className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                      >
-                        <Save className="h-4 w-4 mr-2" />
-                        Save Changes
-                      </button>
-                      <button
-                        onClick={handleCancelEditDraft}
-                        className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  )}
-                  
-                  {/* Save draft button for new drafts */}
-                  {draftedArgument && !viewingDraft && (
+          {/* Drafted Argument */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-8 border border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Legal Argument</h3>
+              <div className="flex items-center gap-3">
+                {/* Edit buttons for saved drafts */}
+                {viewingDraft && !isEditingDraft && (
+                  <>
                     <button
-                      onClick={handleSaveDraft}
-                      className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                      onClick={() => handleStartEditDraft(viewingDraft)}
+                      className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      <PenTool className="h-4 w-4 mr-2" />
+                      Manual Edit
+                    </button>
+                    <button
+                      onClick={() => handleStartAIEdit(viewingDraft)}
+                      className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      <Bot className="h-4 w-4 mr-2" />
+                      AI Edit
+                    </button>
+                  </>
+                )}
+                
+                {/* Save/Cancel buttons for manual editing */}
+                {isEditingDraft && (
+                  <>
+                    <button
+                      onClick={handleSaveEditedDraft}
+                      className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                     >
                       <Save className="h-4 w-4 mr-2" />
-                      Save Draft
+                      Save Changes
                     </button>
-                  )}
-                </div>
-              </div>
-              
-              {/* Draft content - either editable or read-only */}
-              {isEditingDraft ? (
-                <div>
-                  <textarea
-                    value={editedDraftContent}
-                    onChange={(e) => setEditedDraftContent(e.target.value)}
-                    className="w-full h-96 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-gray-900 text-base resize-vertical"
-                    placeholder="Edit your legal argument..."
-                  />
-                  <p className="text-sm text-gray-600 mt-2">
-                    {editedDraftContent.split(' ').length} words
-                  </p>
-                </div>
-              ) : (
-                <div className="prose max-w-none text-gray-700 leading-relaxed">
-                  <ReactMarkdown 
-                    components={{
-                      h1: ({children, ...props}) => children ? <h1 className="text-2xl font-bold text-gray-900 mb-4" {...props}>{children}</h1> : null,
-                      h2: ({children, ...props}) => children ? <h2 className="text-xl font-semibold text-gray-900 mb-3" {...props}>{children}</h2> : null,
-                      h3: ({children, ...props}) => children ? <h3 className="text-lg font-medium text-gray-900 mb-2" {...props}>{children}</h3> : null,
-                      p: ({...props}) => <p className="mb-4 text-gray-700 leading-relaxed" {...props} />,
-                      ul: ({...props}) => <ul className="list-disc list-inside mb-4 space-y-1" {...props} />,
-                      ol: ({...props}) => <ol className="list-decimal list-inside mb-4 space-y-1" {...props} />,
-                      li: ({...props}) => <li className="text-gray-700" {...props} />,
-                      blockquote: ({...props}) => <blockquote className="border-l-4 border-primary pl-4 italic text-gray-600 mb-4" {...props} />,
-                      strong: ({...props}) => <strong className="font-semibold text-gray-900" {...props} />,
-                      em: ({...props}) => <em className="italic" {...props} />,
-                      code: ({...props}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
-                    }}
+                    <button
+                      onClick={handleCancelEditDraft}
+                      className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                )}
+                
+                {/* Save draft button for new drafts */}
+                {draftedArgument && !viewingDraft && (
+                  <button
+                    onClick={handleSaveDraft}
+                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                   >
-                    {currentDraft.drafted_argument}
-                  </ReactMarkdown>
-                </div>
-              )}
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Draft
+                  </button>
+                )}
+              </div>
             </div>
-
-            {/* Key Arguments */}
-            {currentDraft.strategy?.key_arguments && (
-              <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Key Arguments</h3>
-                <div className="space-y-4">
-                  {currentDraft.strategy.key_arguments.map((arg: any, index: number) => (
-                    <div key={index} className="border-l-4 border-primary pl-4">
-                      <h4 className="font-medium text-gray-900 mb-2">Argument {index + 1}</h4>
-                      <p className="text-gray-700 mb-2">{arg.argument}</p>
-                      <p className="text-sm text-gray-600"><strong>Authority:</strong> {arg.supporting_authority}</p>
-                      <p className="text-sm text-gray-600"><strong>Factual Basis:</strong> {arg.factual_basis}</p>
-                    </div>
-                  ))}
-                </div>
+            
+            {/* Draft content - either editable or read-only */}
+            {isEditingDraft ? (
+              <div>
+                <textarea
+                  value={editedDraftContent}
+                  onChange={(e) => setEditedDraftContent(e.target.value)}
+                  className="w-full h-96 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-gray-900 text-base resize-vertical"
+                  placeholder="Edit your legal argument..."
+                />
+                <p className="text-sm text-gray-600 mt-2">
+                  {editedDraftContent.split(' ').length} words
+                </p>
+              </div>
+            ) : (
+              <div className="prose max-w-none text-gray-700 leading-relaxed">
+                <ReactMarkdown 
+                  components={{
+                    h1: ({children, ...props}) => children ? <h1 className="text-2xl font-bold text-gray-900 mb-4" {...props}>{children}</h1> : null,
+                    h2: ({children, ...props}) => children ? <h2 className="text-xl font-semibold text-gray-900 mb-3" {...props}>{children}</h2> : null,
+                    h3: ({children, ...props}) => children ? <h3 className="text-lg font-medium text-gray-900 mb-2" {...props}>{children}</h3> : null,
+                    p: ({...props}) => <p className="mb-4 text-gray-700 leading-relaxed" {...props} />,
+                    ul: ({...props}) => <ul className="list-disc list-inside mb-4 space-y-1" {...props} />,
+                    ol: ({...props}) => <ol className="list-decimal list-inside mb-4 space-y-1" {...props} />,
+                    li: ({...props}) => <li className="text-gray-700" {...props} />,
+                    blockquote: ({...props}) => <blockquote className="border-l-4 border-primary pl-4 italic text-gray-600 mb-4" {...props} />,
+                    strong: ({...props}) => <strong className="font-semibold text-gray-900" {...props} />,
+                    em: ({...props}) => <em className="italic" {...props} />,
+                    code: ({...props}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono" {...props} />,
+                  }}
+                >
+                  {currentDraft.drafted_argument}
+                </ReactMarkdown>
               </div>
             )}
           </div>
+
+          {/* Key Arguments */}
+          {currentDraft.strategy?.key_arguments && (
+            <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Key Arguments</h3>
+              <div className="space-y-4">
+                {currentDraft.strategy.key_arguments.map((arg: any, index: number) => (
+                  <div key={index} className="border-l-4 border-primary pl-4">
+                    <h4 className="font-medium text-gray-900 mb-2">Argument {index + 1}</h4>
+                    <p className="text-gray-700 mb-2">{arg.argument}</p>
+                    <p className="text-sm text-gray-600"><strong>Authority:</strong> {arg.supporting_authority}</p>
+                    <p className="text-sm text-gray-600"><strong>Factual Basis:</strong> {arg.factual_basis}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         </div>
 
         {/* Modals - Always rendered */}
@@ -882,143 +796,68 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
           onEdit={handleAIEdit}
           isEditing={isAIEditing}
         />
-
-        {/* Edit Case File Modal */}
-        {showEditModal && (
-          <div className="fixed inset-0 z-50 overflow-y-auto">
-            {/* Backdrop */}
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-              onClick={() => setShowEditModal(false)}
-            />
-            
-            {/* Modal */}
-            <div className="flex min-h-full items-center justify-center p-4">
-              <div className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl">
-                <div className="p-6 border-b">
-                  <h3 className="text-lg font-semibold text-gray-900">Edit Case File</h3>
-                </div>
-                <div className="p-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                      <input
-                        type="text"
-                        value={editForm.title}
-                        onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                        className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                        placeholder="Enter case file title"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                      <textarea
-                        value={editForm.description}
-                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                        className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                        rows={3}
-                        placeholder="Enter case file description"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Facts</label>
-                      <textarea
-                        value={editForm.user_facts}
-                        onChange={(e) => setEditForm({ ...editForm, user_facts: e.target.value })}
-                        className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                        rows={6}
-                        placeholder="Enter case facts"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="p-6 border-t flex justify-end gap-4">
-                  <button
-                    onClick={() => setShowEditModal(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleUpdateCaseFile}
-                    className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    disabled={isUpdating}
-                  >
-                    {isUpdating ? 'Updating...' : 'Update Case File'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </>
     );
   }
 
-  // Fallback main case file detail view (simplified placeholder to ensure component always returns)
+  // Show Moot Court page
+  if (showMootCourt) {
+    return (
+      <MootCourt
+        caseFileId={caseFileId}
+        caseFileTitle={caseFile.title}
+        onBack={() => setShowMootCourt(false)}
+      />
+    );
+  }
+
   return (
-    <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <button
-            onClick={onBack}
-            className="flex items-center text-primary hover:text-primary-700 font-medium"
-          >
-            <ArrowLeft className="h-5 w-5 mr-2" />
-            Back to Strategy
-          </button>
-          <div className="text-right">
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">{caseFile.title}</h1>
-                <p className="text-gray-600">
-                  {caseFile.documents.length} documents • {drafts.length} drafts
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleEditCaseFile}
-                  className="flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                  title="Edit case file information"
-                >
-                  <PenTool className="h-4 w-4 mr-1.5" />
-                  Edit
-                </button>
-                <button
-                  onClick={handleMootCourtSessionsClick}
-                  className="flex items-center px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                  title="View Moot Court Sessions"
-                >
-                  <Gavel className="h-4 w-4 mr-1.5" />
-                  Sessions
-                </button>
-                <button
-                  onClick={handleMootCourtClick}
-                  className="flex items-center px-3 py-2 text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all duration-300 shadow-lg"
-                  title="Open Moot Court - Practice your arguments"
-                >
-                  <Gavel className="h-4 w-4 mr-1.5" />
-                  Moot Court
-                </button>
+      <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
+        <div className="max-w-6xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={onBack}
+              className="flex items-center text-primary hover:text-primary-700 font-medium"
+            >
+              <ArrowLeft className="h-5 w-5 mr-2" />
+              Back to Strategy
+            </button>
+            <div className="text-right">
+              <div className="flex items-center gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">{caseFile.title}</h1>
+                  <p className="text-gray-600">
+                    {caseFile.documents.length} documents • {drafts.length} drafts
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleEditCaseFile}
+                    className="flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                    title="Edit case file information"
+                  >
+                    <PenTool className="h-4 w-4 mr-1.5" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={handleMootCourtClick}
+                    className="flex items-center px-3 py-2 text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all duration-300 shadow-lg"
+                    title="Open Moot Court - Practice your arguments"
+                  >
+                    <Gavel className="h-4 w-4 mr-1.5" />
+                    Moot Court
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Description */}
+        {/* Case File Info */}
         {caseFile.description && (
           <div className="bg-white rounded-lg shadow-md p-6 mb-6 border border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Description</h3>
-            <p className="text-gray-700 whitespace-pre-line">{caseFile.description}</p>
-          </div>
-        )}
-
-        {/* Facts */}
-        {caseFile.user_facts && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6 border border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Case Facts</h3>
-            <p className="text-gray-700 whitespace-pre-line">{caseFile.user_facts}</p>
+            <p className="text-gray-700">{caseFile.description}</p>
           </div>
         )}
 
@@ -1051,7 +890,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-4 mb-2">
                               <h4 className="font-medium text-gray-900 text-base truncate">{doc.title}</h4>
-                              {doc.relevance_score_percent !== undefined && (
+                              {doc.relevance_score_percent && (
                                 <span className="px-3 py-1 text-sm font-medium bg-blue-100 text-blue-800 rounded-full whitespace-nowrap">
                                   {Math.round(doc.relevance_score_percent)}% relevant
                                 </span>
@@ -1235,6 +1074,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
             onClick={() => setShowEditModal(false)}
           />
+          
           {/* Modal */}
           <div className="flex min-h-full items-center justify-center p-4">
             <div className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl">
@@ -1269,7 +1109,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                       value={editForm.user_facts}
                       onChange={(e) => setEditForm({ ...editForm, user_facts: e.target.value })}
                       className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                      rows={6}
+                      rows={3}
                       placeholder="Enter case facts"
                     />
                   </div>
@@ -1295,7 +1135,7 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
         </div>
       )}
     </div>
-  );
+  )
 };
 
 export default CaseFileDetail;

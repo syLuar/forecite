@@ -173,7 +173,17 @@ setup_backend() {
     print_status "Installing backend dependencies with uv..."
     cd backend
     uv pip install -r requirements.txt
-    
+
+    # Run idempotent DB migration before starting services
+    if [ -f "scripts/db_migration.py" ]; then
+        print_status "Running database migration..."
+        if [ "$os" = "windows" ]; then
+            python scripts/db_migration.py || print_warning "Migration script encountered an issue; proceeding."
+        else
+            python3 scripts/db_migration.py || print_warning "Migration script encountered an issue; proceeding."
+        fi
+    fi
+
     # Check if .env file exists
     if [ ! -f ".env" ]; then
         if [ -f ".env.example" ]; then

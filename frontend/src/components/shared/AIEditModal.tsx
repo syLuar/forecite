@@ -1,35 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { X, PenTool } from 'lucide-react';
+import { X, Bot, Wand2 } from 'lucide-react';
 
-interface DraftArgumentModalProps {
+interface AIEditModalProps {
   isOpen: boolean;
   onClose: () => void;
-  caseFileId: number;
-  onDraft: (legalQuestion: string, additionalInstructions: string) => void;
-  isDrafting: boolean;
-  initialQuestion?: string;
-  initialInstructions?: string;
+  draftId: number;
+  currentContent: string;
+  onEdit: (editInstructions: string) => void;
+  isEditing: boolean;
 }
 
-const DraftArgumentModal: React.FC<DraftArgumentModalProps> = ({ 
+const AIEditModal: React.FC<AIEditModalProps> = ({ 
   isOpen, 
   onClose, 
-  caseFileId, 
-  onDraft, 
-  isDrafting,
-  initialQuestion = '',
-  initialInstructions = ''
+  draftId,
+  currentContent,
+  onEdit, 
+  isEditing
 }) => {
-  const [legalQuestion, setLegalQuestion] = useState('');
-  const [additionalInstructions, setAdditionalInstructions] = useState('');
+  const [editInstructions, setEditInstructions] = useState('');
 
-  // Initialize form with passed values
+  // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
-      setLegalQuestion(initialQuestion);
-      setAdditionalInstructions(initialInstructions);
+      setEditInstructions('');
     }
-  }, [isOpen, initialQuestion, initialInstructions]);
+  }, [isOpen]);
 
   // Escape key handler
   useEffect(() => {
@@ -52,7 +48,9 @@ const DraftArgumentModal: React.FC<DraftArgumentModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onDraft(legalQuestion, additionalInstructions);
+    if (editInstructions.trim()) {
+      onEdit(editInstructions.trim());
+    }
   };
 
   if (!isOpen) return null;
@@ -71,8 +69,8 @@ const DraftArgumentModal: React.FC<DraftArgumentModalProps> = ({
           {/* Modal Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
             <div className="flex items-center">
-              <PenTool className="h-6 w-6 text-primary mr-3" />
-              <h2 className="text-2xl font-bold text-gray-900">Draft Legal Argument</h2>
+              <Bot className="h-6 w-6 text-primary mr-3" />
+              <h2 className="text-2xl font-bold text-gray-900">AI-Assisted Draft Editing</h2>
             </div>
             <button
               onClick={onClose}
@@ -86,50 +84,45 @@ const DraftArgumentModal: React.FC<DraftArgumentModalProps> = ({
           <div className="p-6">
             <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-400 rounded">
               <p className="text-sm text-blue-700">
-                <strong>Note:</strong> Case facts are stored in your case file. The argument will be drafted using those facts along with the selected documents and any additional instructions below.
+                <strong>AI Editing:</strong> Describe the changes you want to make to your legal argument. 
+                The AI will revise the draft while preserving the legal structure and citations.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-lg font-medium text-gray-700 mb-3">
-                  Legal Question (Optional)
+                  Edit Instructions
                 </label>
                 <textarea
-                  value={legalQuestion}
-                  onChange={(e) => setLegalQuestion(e.target.value)}
-                  placeholder="What specific legal question should the argument address?"
-                  className="w-full h-32 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-gray-900 placeholder-gray-400 text-base"
+                  value={editInstructions}
+                  onChange={(e) => setEditInstructions(e.target.value)}
+                  placeholder="Describe what changes you want to make to the argument. For example: 'Make the introduction more concise', 'Add stronger emphasis on the precedent from Smith v. Jones', 'Reorganize the counterargument section', etc."
+                  className="w-full h-40 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-gray-900 placeholder-gray-400 text-base resize-none"
+                  required
                 />
               </div>
-              
-              <div>
-                <label className="block text-lg font-medium text-gray-700 mb-3">
-                  Additional Drafting Instructions (Optional)
-                </label>
-                <textarea
-                  value={additionalInstructions}
-                  onChange={(e) => setAdditionalInstructions(e.target.value)}
-                  placeholder="Any specific instructions for how the argument should be structured or focused..."
-                  className="w-full h-32 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent text-gray-900 placeholder-gray-400 text-base"
-                />
+
+              {/* Preview of current content length */}
+              <div className="text-sm text-gray-600">
+                <p>Current draft: {currentContent.split(' ').length} words</p>
               </div>
               
               <div className="flex justify-end pt-6">
                 <button
                   type="submit"
-                  disabled={isDrafting}
+                  disabled={isEditing || !editInstructions.trim()}
                   className="flex items-center justify-center px-8 py-3 bg-primary text-white rounded-lg hover:bg-primary-700 focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 font-medium text-base"
                 >
-                  {isDrafting ? (
+                  {isEditing ? (
                     <>
-                      <PenTool className="h-5 w-5 mr-2 animate-spin" />
-                      Drafting Argument...
+                      <Wand2 className="h-5 w-5 mr-2 animate-spin" />
+                      AI is editing...
                     </>
                   ) : (
                     <>
-                      <PenTool className="h-5 w-5 mr-2" />
-                      Draft Legal Argument
+                      <Wand2 className="h-5 w-5 mr-2" />
+                      Edit with AI
                     </>
                   )}
                 </button>
@@ -142,4 +135,4 @@ const DraftArgumentModal: React.FC<DraftArgumentModalProps> = ({
   );
 };
 
-export default DraftArgumentModal;
+export default AIEditModal;

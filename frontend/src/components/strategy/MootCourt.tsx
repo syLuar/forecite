@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, ChevronDown, FileText, Swords, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, FileText, Swords, X, RefreshCw, Save } from 'lucide-react';
 import { SavedArgumentDraft } from '../../types/api';
 import { apiClient } from '../../services/api';
 
@@ -9,16 +9,47 @@ interface MootCourtProps {
   onBack: () => void;
 }
 
+interface CounterArgument {
+  title: string;
+  argument: string;
+  supporting_authority: string;
+  factual_basis: string;
+  strength_assessment?: number;
+}
+
+interface CounterArgumentRebuttal {
+  title: string;
+  content: string;
+  authority: string;
+}
+
 const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack }) => {
   const [drafts, setDrafts] = useState<SavedArgumentDraft[]>([]);
   const [selectedDraft, setSelectedDraft] = useState<SavedArgumentDraft | null>(null);
   const [selectedDraftId, setSelectedDraftId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [loadingDraft, setLoadingDraft] = useState(false);
+  const [generatingCounterArgs, setGeneratingCounterArgs] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showRebuttalModal, setShowRebuttalModal] = useState(false);
   const [selectedOpponentArg, setSelectedOpponentArg] = useState<number | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [counterArguments, setCounterArguments] = useState<CounterArgument[]>([]);
+  const [rebuttals, setRebuttals] = useState<CounterArgumentRebuttal[][]>([]);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+  // Toast notifications state
+  const [toasts, setToasts] = useState<{ id: number; type: 'success' | 'error' | 'info'; message: string }[]>([]);
+  // Ref for draft selector dropdown
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
 
   useEffect(() => {
     const loadDrafts = async () => {
@@ -65,7 +96,7 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
       setShowDropdown(false);
     } catch (error) {
       console.error('Failed to load draft:', error);
-      alert('Failed to load draft. Please try again.');
+      showToast('error', 'Failed to load draft. Please try again.');
     } finally {
       setLoadingDraft(false);
     }
@@ -77,60 +108,27 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
     return draft ? draft.title : 'Unknown draft';
   };
 
-  // Hardcoded rebuttals for each opponent argument
-  const rebuttals = {
-    0: [ // Counter-Argument 1 rebuttals
-      {
-        title: "Precedent Supports Broad Interpretation",
-        content: "Recent Supreme Court decisions in Williams v. State (2023) explicitly endorse a broader reading of similar statutory language, establishing that narrow interpretations fail to serve the statute's remedial purpose.",
-        authority: "Williams v. State (2023), Thompson v. Federal Agency (2022)"
-      },
-      {
-        title: "Legislative History Confirms Intent",
-        content: "Committee reports and floor debates clearly demonstrate legislative intent to create a comprehensive framework, not the limited application suggested by opposing counsel.",
-        authority: "House Committee Report 118-45, Senate Floor Debates March 2021"
-      },
-      {
-        title: "Practical Application Supports Our Position",
-        content: "Federal agencies have consistently applied this statute broadly for over a decade, creating established administrative practice that courts typically defer to under Chevron doctrine.",
-        authority: "Chevron U.S.A. v. NRDC (1984), Agency Implementation Guidelines 2012-2024"
-      }
-    ],
-    1: [ // Counter-Argument 2 rebuttals
-      {
-        title: "Evidence Meets All Daubert Requirements",
-        content: "Our expert testimony is based on peer-reviewed methodology published in leading scientific journals and has been accepted by courts in similar cases nationwide.",
-        authority: "Journal of Scientific Evidence (2023), Federal Evidence Review Vol. 45"
-      },
-      {
-        title: "Multiple Independent Corroborating Sources",
-        content: "The evidence is supported by three independent studies using different methodologies, all reaching consistent conclusions that strengthen reliability.",
-        authority: "Anderson Study (2023), Miller Research Institute (2024), Federal Lab Report 2024"
-      },
-      {
-        title: "Opposing Expert Lacks Relevant Experience",
-        content: "Defense expert has never published in this field and lacks the specialized knowledge required to challenge our evidence under Federal Rule 702.",
-        authority: "Federal Rule of Evidence 702, Kumho Tire Co. v. Carmichael (1999)"
-      }
-    ],
-    2: [ // Counter-Argument 3 rebuttals
-      {
-        title: "Discovery Rule Applies",
-        content: "Plaintiff could not reasonably have discovered the cause of action earlier due to defendant's active concealment of material facts, triggering the discovery rule exception.",
-        authority: "State Civil Code Section 338(d), Martinez v. Corporate Defendant (2022)"
-      },
-      {
-        title: "Equitable Estoppel Prevents Limitations Defense",
-        content: "Defendant's affirmative misrepresentations and promises to resolve the matter prevented plaintiff from filing suit, creating equitable estoppel.",
-        authority: "Batson v. Manufacturing Co. (2021), Equitable Estoppel Doctrine"
-      },
-      {
-        title: "Continuing Violation Theory",
-        content: "The complained-of conduct constitutes a continuing violation that was ongoing within the limitations period, making the entire claim timely filed.",
-        authority: "Garcia v. Employer (2023), Continuing Violation Doctrine Applications"
-      }
-    ]
+  const generateCounterArguments = async () => {
+    if (!selectedDraft) {
+      showToast('info', 'Select a draft before generating counterarguments.');
+      return;
+    }
+
+    setGeneratingCounterArgs(true);
+    try {
+      const response = await apiClient.generateCounterArguments(caseFileId, selectedDraft.id);
+      setCounterArguments(response.counterarguments);
+      setRebuttals(response.rebuttals);
+      showToast('success', 'Counterarguments generated successfully.');
+    } catch (error) {
+      console.error('Failed to generate counterarguments:', error);
+      showToast('error', 'Failed to generate counterarguments. Please try again.');
+    } finally {
+      setGeneratingCounterArgs(false);
+    }
   };
+
+  const hasGeneratedCounterArgs = counterArguments.length > 0;
 
   const handleRebuttalClick = (argumentIndex: number) => {
     setSelectedOpponentArg(argumentIndex);
@@ -154,9 +152,20 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
             <ArrowLeft className="h-5 w-5 mr-2" />
             Back to Case
           </button>
-          <div className="text-right">
-            <h1 className="text-2xl font-bold text-gray-900">Moot Court</h1>
-            <p className="text-gray-600">{caseFileTitle}</p>
+          <div className="flex items-center space-x-4">
+            {hasGeneratedCounterArgs && (
+              <button
+                onClick={() => setShowSaveModal(true)}
+                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-md hover:shadow-lg transition-colors"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Save Session
+              </button>
+            )}
+            <div className="text-right">
+              <h1 className="text-2xl font-bold text-gray-900">Moot Court</h1>
+              <p className="text-gray-600">{caseFileTitle}</p>
+            </div>
           </div>
         </div>
 
@@ -236,7 +245,7 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
               ) : selectedDraft && selectedDraft.strategy?.key_arguments ? (
                 <div className="space-y-6">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Key Arguments</h3>
-                  {selectedDraft.strategy.key_arguments.slice(0, 3).map((arg: any, index: number) => (
+                  {selectedDraft.strategy.key_arguments.map((arg: any, index: number) => (
                     <div key={index} className="border-l-4 border-primary pl-4 bg-gray-50 p-4 rounded-r-lg">
                       <h4 className="font-semibold text-gray-900 mb-2">Argument {index + 1}</h4>
                       <p className="text-gray-700 mb-3 leading-relaxed">{arg.argument}</p>
@@ -270,98 +279,92 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
           {/* Right Column - Opponent Arguments */}
           <div className="bg-white rounded-lg shadow-md border border-gray-200">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Opponent Arguments</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">Opponent Arguments</h2>
+                
+                {/* Generate Button */}
+                <button
+                  onClick={generateCounterArguments}
+                  disabled={!selectedDraft || generatingCounterArgs}
+                  className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    !selectedDraft || generatingCounterArgs
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-primary text-white hover:bg-primary-700 shadow-md hover:shadow-lg'
+                  }`}
+                >
+                  {generatingCounterArgs ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Swords className="h-4 w-4 mr-2" />
+                  )}
+                  {generatingCounterArgs ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
             </div>
             <div className="p-6">
               <div className="space-y-6">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Potential Counter-Arguments</h3>
                 
-                {/* Opponent Argument 1 */}
-                <div className="border-l-4 border-red-500 pl-4 bg-red-50 p-4 rounded-r-lg">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Counter-Argument 1</h4>
-                      <p className="text-gray-700 mb-3 leading-relaxed">
-                        The plaintiff's interpretation of the statute is overly broad and would create an unworkable standard that conflicts with established precedent in similar cases.
-                      </p>
-                      <div className="space-y-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-900">Supporting Authority:</span>
-                          <p className="text-gray-600 mt-1">Smith v. Johnson (2020), Federal Circuit Court ruling on statutory interpretation</p>
+                {!hasGeneratedCounterArgs && !generatingCounterArgs ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Swords className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <p className="text-lg mb-2">No counterarguments generated yet</p>
+                    <p className="text-sm">Select a draft and click "Generate" to create counterarguments using AI.</p>
+                  </div>
+                ) : generatingCounterArgs ? (
+                  <div className="space-y-4">
+                    <div className="animate-pulse">
+                      <div className="bg-gray-200 h-6 rounded w-1/2 mb-3"></div>
+                      <div className="bg-gray-200 h-20 rounded mb-2"></div>
+                      <div className="bg-gray-200 h-4 rounded w-3/4 mb-1"></div>
+                      <div className="bg-gray-200 h-4 rounded w-2/3"></div>
+                    </div>
+                    <div className="animate-pulse">
+                      <div className="bg-gray-200 h-6 rounded w-1/2 mb-3"></div>
+                      <div className="bg-gray-200 h-20 rounded mb-2"></div>
+                      <div className="bg-gray-200 h-4 rounded w-3/4 mb-1"></div>
+                      <div className="bg-gray-200 h-4 rounded w-2/3"></div>
+                    </div>
+                    <div className="animate-pulse">
+                      <div className="bg-gray-200 h-6 rounded w-1/2 mb-3"></div>
+                      <div className="bg-gray-200 h-20 rounded mb-2"></div>
+                      <div className="bg-gray-200 h-4 rounded w-3/4 mb-1"></div>
+                      <div className="bg-gray-200 h-4 rounded w-2/3"></div>
+                    </div>
+                  </div>
+                ) : (
+                  counterArguments.map((counterArg, index) => (
+                    <div key={index} className="border-l-4 border-red-500 pl-4 bg-red-50 p-4 rounded-r-lg">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-900 mb-2">
+                            Counter-Argument {index + 1}: {counterArg.title}
+                          </h4>
+                          <p className="text-gray-700 mb-3 leading-relaxed">
+                            {counterArg.argument}
+                          </p>
+                          <div className="space-y-2 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-900">Supporting Authority:</span>
+                              <p className="text-gray-600 mt-1">{counterArg.supporting_authority}</p>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-900">Factual Basis:</span>
+                              <p className="text-gray-600 mt-1">{counterArg.factual_basis}</p>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-medium text-gray-900">Factual Basis:</span>
-                          <p className="text-gray-600 mt-1">Historical application of the statute shows narrow interpretation was intended by legislature</p>
-                        </div>
+                        <button
+                          onClick={() => handleRebuttalClick(index)}
+                          className="ml-4 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-md hover:shadow-lg"
+                          title="View rebuttals"
+                        >
+                          <Swords className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleRebuttalClick(0)}
-                      className="ml-4 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-md hover:shadow-lg"
-                      title="View rebuttals"
-                    >
-                      <Swords className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Opponent Argument 2 */}
-                <div className="border-l-4 border-red-500 pl-4 bg-red-50 p-4 rounded-r-lg">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Counter-Argument 2</h4>
-                      <p className="text-gray-700 mb-3 leading-relaxed">
-                        The evidence presented lacks sufficient foundation and reliability, failing to meet the standards required under the Federal Rules of Evidence.
-                      </p>
-                      <div className="space-y-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-900">Supporting Authority:</span>
-                          <p className="text-gray-600 mt-1">Daubert v. Merrell Dow Pharmaceuticals (1993), Evidence reliability standards</p>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-900">Factual Basis:</span>
-                          <p className="text-gray-600 mt-1">Key evidence was obtained through unreliable methodology and lacks peer review</p>
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRebuttalClick(1)}
-                      className="ml-4 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-md hover:shadow-lg"
-                      title="View rebuttals"
-                    >
-                      <Swords className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Opponent Argument 3 */}
-                <div className="border-l-4 border-red-500 pl-4 bg-red-50 p-4 rounded-r-lg">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-gray-900 mb-2">Counter-Argument 3</h4>
-                      <p className="text-gray-700 mb-3 leading-relaxed">
-                        The plaintiff's claim is barred by the applicable statute of limitations, as the cause of action accrued more than two years prior to filing.
-                      </p>
-                      <div className="space-y-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-900">Supporting Authority:</span>
-                          <p className="text-gray-600 mt-1">State Civil Code Section 335.1, Discovery rule limitations</p>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-900">Factual Basis:</span>
-                          <p className="text-gray-600 mt-1">Plaintiff had constructive notice of the claim as early as January 2022</p>
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRebuttalClick(2)}
-                      className="ml-4 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-md hover:shadow-lg"
-                      title="View rebuttals"
-                    >
-                      <Swords className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -388,7 +391,7 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
             
             <div className="p-6">
               <div className="space-y-6">
-                {rebuttals[selectedOpponentArg as keyof typeof rebuttals]?.map((rebuttal, index) => (
+                {selectedOpponentArg !== null && rebuttals[selectedOpponentArg]?.map((rebuttal: CounterArgumentRebuttal, index: number) => (
                   <div key={index} className="border-l-4 border-primary pl-4 bg-blue-50 p-4 rounded-r-lg">
                     <h3 className="font-semibold text-gray-900 mb-2">
                       Rebuttal {index + 1}: {rebuttal.title}
@@ -401,7 +404,11 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
                       <p className="text-gray-600 mt-1">{rebuttal.authority}</p>
                     </div>
                   </div>
-                ))}
+                )) || (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>No rebuttals available for this counterargument.</p>
+                  </div>
+                )}
               </div>
               
               <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end">
@@ -416,6 +423,126 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
           </div>
         </div>
       )}
+
+      {/* Save Modal (New) */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">Save Session Title</h2>
+                <button
+                  onClick={() => setShowSaveModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="sessionTitle" className="block text-sm font-medium text-gray-700">
+                    Session Title
+                  </label>
+                  <input
+                    id="sessionTitle"
+                    value={sessionTitle}
+                    onChange={(e) => setSessionTitle(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+                    placeholder="Enter a title for your session"
+                  />
+                </div>
+                
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => setShowSaveModal(false)}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!sessionTitle.trim()) {
+                        showToast('info', 'Please enter a session title.');
+                        return;
+                      }
+                      
+                      setSaving(true);
+                      try {
+                        const saveRequest = {
+                          case_file_id: caseFileId,
+                          draft_id: selectedDraft?.id,
+                          title: sessionTitle.trim(),
+                          counterarguments: counterArguments,
+                          rebuttals: rebuttals,
+                          source_arguments: selectedDraft?.strategy?.key_arguments || [],
+                          counterargument_strength: null,
+                          research_comprehensiveness: null,
+                          rebuttal_quality: null,
+                          execution_time: null,
+                        };
+                        
+                        const response = await apiClient.saveMootCourtSession(saveRequest);
+                        showToast('success', `Session saved (ID: ${response.session_id}).`);
+                        setShowSaveModal(false);
+                        setSessionTitle('');
+                      } catch (error) {
+                        console.error('Failed to save moot court session:', error);
+                        showToast('error', 'Failed to save session. Please try again.');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    disabled={saving || !sessionTitle.trim()}
+                    className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                      saving || !sessionTitle.trim()
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-primary text-white hover:bg-primary-700'
+                    }`}
+                  >
+                    {saving ? (
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    {saving ? 'Saving...' : 'Save Session'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notifications */}
+      <div className="fixed bottom-4 right-4 z-50 space-y-3 w-80">
+        {toasts.map(t => (
+          <div
+            key={t.id}
+            className={`flex items-start p-4 rounded-lg shadow-lg text-sm animate-slide-in-left relative overflow-hidden ${
+              t.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' :
+              t.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
+              'bg-blue-50 border border-blue-200 text-blue-800'
+            }`}
+          >
+            <div className="flex-1 pr-6">{t.message}</div>
+            <button
+              onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <span
+              className={`absolute bottom-0 left-0 h-1 animate-toast-bar ${
+                t.type === 'success' ? 'bg-green-400' : t.type === 'error' ? 'bg-red-400' : 'bg-blue-400'
+              }`}
+              style={{ animationDuration: '5s', width: '100%' }}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

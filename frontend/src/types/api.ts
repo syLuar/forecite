@@ -62,9 +62,9 @@ export interface CaseFile {
 }
 
 export interface ArgumentDraftRequest {
-  user_facts: string;
-  case_file: CaseFile;
+  case_file_id: number;
   legal_question?: string;
+  additional_drafting_instructions?: string;
   argument_preferences?: any;
 }
 
@@ -105,23 +105,20 @@ export interface ArgumentDraftResponse {
 export interface CreateCaseFileRequest {
   title: string;
   description?: string;
-  user_facts?: string;
-  legal_question?: string;
+  user_facts?: string;  // Only case facts - no legal question or instructions
 }
 
 export interface UpdateCaseFileRequest {
   title?: string;
   description?: string;
-  user_facts?: string;
-  legal_question?: string;
+  user_facts?: string;  // Only case facts - no legal question or instructions
 }
 
 export interface CaseFileResponse {
   id: number;
   title: string;
   description?: string;
-  user_facts?: string;
-  legal_question?: string;
+  user_facts?: string;  // Only case facts
   created_at: string;
   updated_at?: string;
   documents: any[];

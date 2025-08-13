@@ -1,15 +1,16 @@
 """
-Service layer for managing case files and argument drafts.
+Service layer for managing case files, argument drafts, and moot court sessions.
 
 This module provides high-level operations for creating, retrieving,
-and managing case files and their associated legal argument drafts.
+and managing case files, their associated legal argument drafts, and
+moot court practice sessions.
 """
 
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.core.database import get_db_context
-from app.models.database_models import CaseFile, CaseFileDocument, ArgumentDraft
+from app.models.database_models import CaseFile, CaseFileDocument, ArgumentDraft, MootCourtSession
 from app.models.schemas import (
     CaseFile as CaseFileSchema,
     CaseFileDocument as CaseFileDocumentSchema,
@@ -18,6 +19,7 @@ from app.models.schemas import (
 from app.tools.neo4j_tools import get_chunk_by_id
 
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,6 @@ class CaseFileService:
         title: str,
         description: Optional[str] = None,
         user_facts: Optional[str] = None,
-        legal_question: Optional[str] = None,
     ) -> int:
         """Create a new case file and return its ID."""
         with get_db_context() as db:
@@ -38,7 +39,6 @@ class CaseFileService:
                 title=title,
                 description=description,
                 user_facts=user_facts,
-                legal_question=legal_question,
             )
             db.add(case_file)
             db.flush()  # To get the ID
@@ -99,7 +99,6 @@ class CaseFileService:
                 "title": case_file.title,
                 "description": case_file.description,
                 "user_facts": case_file.user_facts,
-                "legal_question": case_file.legal_question,
                 "created_at": case_file.created_at,
                 "updated_at": case_file.updated_at,
                 "documents": [
@@ -148,7 +147,6 @@ class CaseFileService:
         title: Optional[str] = None,
         description: Optional[str] = None,
         user_facts: Optional[str] = None,
-        legal_question: Optional[str] = None,
     ) -> bool:
         """Update case file details."""
         with get_db_context() as db:
@@ -162,8 +160,6 @@ class CaseFileService:
                 case_file.description = description
             if user_facts is not None:
                 case_file.user_facts = user_facts
-            if legal_question is not None:
-                case_file.legal_question = legal_question
 
             return True
 
@@ -382,3 +378,260 @@ class ArgumentDraftService:
 
             db.delete(draft)
             return True
+
+    @staticmethod
+    def update_draft(
+        draft_id: int,
+        drafted_argument: str,
+        title: Optional[str] = None,
+    ) -> bool:
+        """Update a draft with manual edits."""
+        with get_db_context() as db:
+            draft = db.query(ArgumentDraft).filter(ArgumentDraft.id == draft_id).first()
+            if not draft:
+                return False
+
+            # Update the fields
+            draft.drafted_argument = drafted_argument
+            if title is not None:
+                draft.title = title
+
+            return True
+
+    @staticmethod
+    def update_draft_with_response(
+        draft_id: int,
+        draft_response: ArgumentDraftResponse,
+    ) -> bool:
+        """Update a draft with AI editing results."""
+        with get_db_context() as db:
+            draft = db.query(ArgumentDraft).filter(ArgumentDraft.id == draft_id).first()
+            if not draft:
+                return False
+
+            # Update with new content from AI editing
+            draft.drafted_argument = draft_response.drafted_argument
+            draft.strategy = draft_response.strategy.dict() if draft_response.strategy else None
+            draft.argument_structure = draft_response.argument_structure
+            draft.citations_used = draft_response.citations_used
+            draft.argument_strength = draft_response.argument_strength
+            draft.precedent_coverage = draft_response.precedent_coverage
+            draft.logical_coherence = draft_response.logical_coherence
+            
+            # Add to revision history if it exists
+            if draft.revision_history is None:
+                draft.revision_history = []
+            
+            revision_entry = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "type": "ai_edit",
+                "execution_time": draft_response.execution_time,
+                "critique_cycles": draft_response.total_critique_cycles
+            }
+            draft.revision_history.append(revision_entry)
+
+            return True
+
+
+class MootCourtSessionService:
+    """Service for managing moot court practice sessions."""
+
+    @staticmethod
+    def save_session(
+        case_file_id: int,
+        draft_id: Optional[int],
+        title: str,
+        counterarguments: List[Dict[str, Any]],
+        rebuttals: List[List[Dict[str, Any]]],
+        source_arguments: Optional[List[Dict[str, Any]]] = None,
+        research_context: Optional[Dict[str, Any]] = None,
+        counterargument_strength: Optional[float] = None,
+        research_comprehensiveness: Optional[float] = None,
+        rebuttal_quality: Optional[float] = None,
+        execution_time: Optional[float] = None,
+    ) -> int:
+        """
+        Save a moot court session to the database.
+        
+        Args:
+            case_file_id: ID of the case file
+            draft_id: ID of the draft used (optional)
+            title: Title for the session
+            counterarguments: List of generated counterarguments
+            rebuttals: List of rebuttal groups
+            source_arguments: Source arguments that were analyzed
+            research_context: RAG retrieval context
+            counterargument_strength: Quality metric
+            research_comprehensiveness: Quality metric
+            rebuttal_quality: Quality metric
+            execution_time: Time taken to generate
+            
+        Returns:
+            ID of the created session
+        """
+        try:
+            with get_db_context() as db:
+                session = MootCourtSession(
+                    case_file_id=case_file_id,
+                    draft_id=draft_id,
+                    title=title,
+                    counterarguments=counterarguments,
+                    rebuttals=rebuttals,
+                    source_arguments=source_arguments,
+                    research_context=research_context,
+                    counterargument_strength=counterargument_strength,
+                    research_comprehensiveness=research_comprehensiveness,
+                    rebuttal_quality=rebuttal_quality,
+                    execution_time=execution_time,
+                )
+                
+                db.add(session)
+                db.commit()
+                db.refresh(session)
+                
+                return session.id
+                
+        except Exception as e:
+            logger.error(f"Error saving moot court session: {e}")
+            raise
+
+    @staticmethod
+    def list_sessions_for_case_file(case_file_id: int) -> List[Dict[str, Any]]:
+        """
+        List all moot court sessions for a case file.
+        
+        Args:
+            case_file_id: ID of the case file
+            
+        Returns:
+            List of session summary data
+        """
+        try:
+            with get_db_context() as db:
+                sessions = (
+                    db.query(MootCourtSession)
+                    .outerjoin(ArgumentDraft, MootCourtSession.draft_id == ArgumentDraft.id)
+                    .filter(MootCourtSession.case_file_id == case_file_id)
+                    .order_by(desc(MootCourtSession.created_at))
+                    .all()
+                )
+                
+                session_list = []
+                for session in sessions:
+                    # Get draft title if available
+                    draft_title = None
+                    if session.draft_id:
+                        draft = db.query(ArgumentDraft).filter(ArgumentDraft.id == session.draft_id).first()
+                        if draft:
+                            draft_title = draft.title
+                    
+                    counterargument_count = len(session.counterarguments) if session.counterarguments else 0
+                    
+                    session_list.append({
+                        "id": session.id,
+                        "title": session.title,
+                        "created_at": session.created_at,
+                        "draft_title": draft_title,
+                        "counterargument_count": counterargument_count,
+                        "counterargument_strength": session.counterargument_strength,
+                        "research_comprehensiveness": session.research_comprehensiveness,
+                    })
+                
+                return session_list
+                
+        except Exception as e:
+            logger.error(f"Error listing moot court sessions for case file {case_file_id}: {e}")
+            return []
+
+    @staticmethod
+    def get_session(session_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific moot court session by ID.
+        
+        Args:
+            session_id: ID of the session
+            
+        Returns:
+            Session data or None if not found
+        """
+        try:
+            with get_db_context() as db:
+                session = db.query(MootCourtSession).filter(MootCourtSession.id == session_id).first()
+                
+                if not session:
+                    return None
+                
+                return {
+                    "id": session.id,
+                    "case_file_id": session.case_file_id,
+                    "draft_id": session.draft_id,
+                    "title": session.title,
+                    "counterarguments": session.counterarguments,
+                    "rebuttals": session.rebuttals,
+                    "source_arguments": session.source_arguments,
+                    "research_context": session.research_context,
+                    "counterargument_strength": session.counterargument_strength,
+                    "research_comprehensiveness": session.research_comprehensiveness,
+                    "rebuttal_quality": session.rebuttal_quality,
+                    "execution_time": session.execution_time,
+                    "created_at": session.created_at,
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting moot court session {session_id}: {e}")
+            return None
+
+    @staticmethod
+    def delete_session(session_id: int) -> bool:
+        """
+        Delete a moot court session.
+        
+        Args:
+            session_id: ID of the session to delete
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with get_db_context() as db:
+                session = db.query(MootCourtSession).filter(MootCourtSession.id == session_id).first()
+                
+                if not session:
+                    return False
+                
+                db.delete(session)
+                db.commit()
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error deleting moot court session {session_id}: {e}")
+            return False
+
+    @staticmethod
+    def update_session_title(session_id: int, title: str) -> bool:
+        """
+        Update a moot court session's title.
+        
+        Args:
+            session_id: ID of the session
+            title: New title
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with get_db_context() as db:
+                session = db.query(MootCourtSession).filter(MootCourtSession.id == session_id).first()
+                
+                if not session:
+                    return False
+                
+                session.title = title
+                db.commit()
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating moot court session {session_id}: {e}")
+            return False

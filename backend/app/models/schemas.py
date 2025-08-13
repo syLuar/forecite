@@ -91,10 +91,12 @@ class CaseFile(BaseModel):
 class ArgumentDraftRequest(BaseModel):
     """Request model for argument drafting endpoint."""
 
-    user_facts: str = Field(..., description="The client's fact pattern")
-    case_file: CaseFile = Field(..., description="Selected precedents and research")
+    case_file_id: int = Field(..., description="ID of the case file containing static facts")
     legal_question: Optional[str] = Field(
         None, description="Specific legal question to address"
+    )
+    additional_drafting_instructions: Optional[str] = Field(
+        None, description="Additional instructions for drafting the argument"
     )
     argument_preferences: Optional[Dict[str, Any]] = Field(
         None, description="User preferences for argument style/approach"
@@ -195,7 +197,6 @@ class CreateCaseFileRequest(BaseModel):
     title: str = Field(..., description="Title for the case file")
     description: Optional[str] = Field(None, description="Optional description")
     user_facts: Optional[str] = Field(None, description="Client's fact pattern")
-    legal_question: Optional[str] = Field(None, description="Legal question to address")
 
 
 class UpdateCaseFileRequest(BaseModel):
@@ -204,7 +205,6 @@ class UpdateCaseFileRequest(BaseModel):
     title: Optional[str] = Field(None, description="Updated title")
     description: Optional[str] = Field(None, description="Updated description")
     user_facts: Optional[str] = Field(None, description="Updated fact pattern")
-    legal_question: Optional[str] = Field(None, description="Updated legal question")
 
 
 class CaseFileResponse(BaseModel):
@@ -214,10 +214,9 @@ class CaseFileResponse(BaseModel):
     title: str
     description: Optional[str] = None
     user_facts: Optional[str] = None
-    legal_question: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-    documents: List[Dict[str, Any]]
+    documents: List[Dict[str, Any]] = []
     total_documents: int
 
 
@@ -283,3 +282,98 @@ class SavedArgumentDraft(BaseModel):
     execution_time: Optional[float] = None
     revision_history: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
+
+
+class EditDraftRequest(BaseModel):
+    """Request model for editing a draft with AI."""
+    
+    draft_id: int
+    edit_instructions: str
+
+
+class UpdateDraftRequest(BaseModel):
+    """Request model for manually updating a draft."""
+    
+    drafted_argument: str
+    title: Optional[str] = None
+
+
+# Moot Court Models
+class CounterArgument(BaseModel):
+    """Model for a single counterargument."""
+    
+    title: str
+    argument: str
+    supporting_authority: str
+    factual_basis: str
+    strength_assessment: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class CounterArgumentRebuttal(BaseModel):
+    """Model for a rebuttal to a counterargument."""
+    
+    title: str
+    content: str
+    authority: str
+
+
+class GenerateCounterArgumentsRequest(BaseModel):
+    """Request model for generating counterarguments."""
+    
+    case_file_id: int = Field(..., description="ID of the case file")
+    draft_id: Optional[int] = Field(None, description="ID of specific draft to analyze")
+
+
+class GenerateCounterArgumentsResponse(BaseModel):
+    """Response model for generated counterarguments."""
+    
+    counterarguments: List[CounterArgument]
+    rebuttals: List[List[CounterArgumentRebuttal]]  # Rebuttals for each counterargument
+    execution_time: Optional[float] = None
+
+
+class SaveMootCourtSessionRequest(BaseModel):
+    """Request model for saving a moot court session."""
+    
+    case_file_id: int = Field(..., description="ID of the case file")
+    draft_id: Optional[int] = Field(None, description="ID of the draft used")
+    title: str = Field(..., description="Title for the moot court session")
+    counterarguments: List[CounterArgument]
+    rebuttals: List[List[CounterArgumentRebuttal]]
+    source_arguments: Optional[List[Dict[str, Any]]] = Field(None, description="Source arguments analyzed")
+    research_context: Optional[Dict[str, Any]] = Field(None, description="RAG retrieval context")
+    counterargument_strength: Optional[float] = None
+    research_comprehensiveness: Optional[float] = None
+    rebuttal_quality: Optional[float] = None
+    execution_time: Optional[float] = None
+
+
+class MootCourtSessionListItem(BaseModel):
+    """Model for moot court session list item."""
+    
+    id: int
+    title: str
+    created_at: datetime
+    draft_title: Optional[str] = None
+    counterargument_count: int
+    counterargument_strength: Optional[float] = None
+    research_comprehensiveness: Optional[float] = None
+
+
+class SavedMootCourtSession(BaseModel):
+    """Model for a saved moot court session."""
+    
+    id: int
+    case_file_id: int
+    draft_id: Optional[int] = None
+    title: str
+    counterarguments: List[CounterArgument]
+    rebuttals: List[List[CounterArgumentRebuttal]]
+    source_arguments: Optional[List[Dict[str, Any]]] = None
+    research_context: Optional[Dict[str, Any]] = None
+    counterargument_strength: Optional[float] = None
+    research_comprehensiveness: Optional[float] = None
+    rebuttal_quality: Optional[float] = None
+    execution_time: Optional[float] = None
+    created_at: datetime
+

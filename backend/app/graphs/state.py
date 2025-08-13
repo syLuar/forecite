@@ -101,6 +101,11 @@ class DraftingState(TypedDict):
     ]  # Current stage: 'strategy', 'critique', 'drafting'
     execution_time: NotRequired[float]  # Total workflow execution time
 
+    # Editing support
+    existing_draft: NotRequired[str]  # Current draft content for editing
+    edit_instructions: NotRequired[str]  # Instructions for AI editing
+    is_editing: NotRequired[bool]  # Whether this is an editing operation
+
 
 class CaseFileDocument(TypedDict):
     """
@@ -142,3 +147,46 @@ class ArgumentStrategy(TypedDict):
     anticipated_counterarguments: List[str]
     strength_assessment: float
     risk_factors: List[str]
+
+
+class CounterArgumentState(TypedDict):
+    """
+    State object for the CounterArgument Graph workflow.
+
+    This state tracks the RAG-based counterargument generation process,
+    leveraging the Neo4j knowledge graph for comprehensive analysis.
+    """
+
+    # Input fields
+    case_file_id: int  # ID of the case file for context
+    draft_id: NotRequired[int]  # Optional specific draft ID
+    user_facts: str  # User's fact pattern from case file
+    key_arguments: List[Dict[str, Any]]  # Key arguments from selected draft
+    case_file_documents: List[Dict[str, Any]]  # Documents in the case file
+
+    # RAG retrieval results
+    retrieved_counterargument_precedents: NotRequired[List[Dict[str, Any]]]  # Cases that oppose the arguments
+    retrieved_distinguishing_factors: NotRequired[List[Dict[str, Any]]]  # Factors that distinguish favorable cases
+    retrieved_alternative_interpretations: NotRequired[List[Dict[str, Any]]]  # Alternative legal interpretations
+    retrieved_procedural_challenges: NotRequired[List[Dict[str, Any]]]  # Procedural or evidentiary issues
+    retrieved_policy_arguments: NotRequired[List[Dict[str, Any]]]  # Policy-based counterarguments
+
+    # Analysis results
+    argument_vulnerabilities: NotRequired[List[Dict[str, Any]]]  # Identified weaknesses in arguments
+    opposing_legal_principles: NotRequired[List[str]]  # Legal principles that oppose the position
+    factual_distinguishers: NotRequired[List[str]]  # Factual elements that weaken the case
+    statutory_interpretation_disputes: NotRequired[List[Dict[str, Any]]]  # Potential interpretation conflicts
+
+    # Generated counterarguments
+    generated_counterarguments: NotRequired[List[Dict[str, Any]]]  # AI-generated counterarguments
+    counterargument_rebuttals: NotRequired[List[List[Dict[str, Any]]]]  # Rebuttals for each counterargument
+
+    # Quality metrics
+    counterargument_strength: NotRequired[float]  # Overall strength of counterarguments
+    research_comprehensiveness: NotRequired[float]  # How comprehensive the RAG retrieval was
+    rebuttal_quality: NotRequired[float]  # Quality of generated rebuttals
+
+    # Metadata
+    retrieval_history: NotRequired[List[Dict[str, Any]]]  # History of retrieval attempts
+    execution_time: NotRequired[float]  # Total workflow execution time
+    workflow_stage: NotRequired[str]  # Current stage: 'retrieval', 'analysis', 'generation'

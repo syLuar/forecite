@@ -34,11 +34,20 @@ from app.models.schemas import (
     SaveDraftRequest,
     ArgumentDraftListItem,
     SavedArgumentDraft,
+    EditDraftRequest,
+    UpdateDraftRequest,
+    GenerateCounterArgumentsRequest,
+    GenerateCounterArgumentsResponse,
+    CounterArgument,
+    CounterArgumentRebuttal,
+    SaveMootCourtSessionRequest,
+    MootCourtSessionListItem,
+    SavedMootCourtSession,
 )
-from app.graphs import research_graph, drafting_graph
-from app.graphs.state import ResearchState, DraftingState
+from app.graphs import research_graph, drafting_graph, counterargument_graph
+from app.graphs.state import ResearchState, DraftingState, CounterArgumentState
 from app.tools.neo4j_tools import close_neo4j_connection
-from app.services.case_file_service import CaseFileService, ArgumentDraftService
+from app.services.case_file_service import CaseFileService, ArgumentDraftService, MootCourtSessionService
 from app.core.database import create_tables
 
 from app.core.config import settings
@@ -202,27 +211,51 @@ async def draft_argument(request: ArgumentDraftRequest):
     """
     Generate legal argument using the Drafting Graph.
 
-    This endpoint initiates the drafting workflow which develops a legal strategy,
-    critiques it through iterative refinement, and generates a final legal argument.
+    This endpoint gets case facts from the specified case file and uses the legal question
+    and additional drafting instructions from the request to generate arguments.
     """
     start_time = time.time()
 
     try:
-        logger.info(f"Received request: {request}")
-        logger.info(f"Case file: {request.case_file}")
-        logger.info(
-            f"Starting argument drafting for case with {len(request.case_file.documents)} precedents"
-        )
+        logger.info(f"Starting argument drafting for case file ID: {request.case_file_id}")
+
+        # Get the case file to retrieve static facts and documents
+        case_file_data = CaseFileService.get_case_file(request.case_file_id)
+        if not case_file_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case file {request.case_file_id} not found",
+            )
+
+        # Extract user facts from case file (static)
+        user_facts = case_file_data.get('user_facts', '')
+        if not user_facts or not user_facts.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Case file must contain case facts before drafting arguments",
+            )
+
+        logger.info(f"Using case facts from case file and {len(case_file_data.get('documents', []))} precedents")
+
+        # Build case file structure for the drafting graph
+        case_file_for_graph = {
+            "documents": case_file_data.get('documents', []),
+            "total_documents": case_file_data.get('total_documents', 0),
+            "created_at": case_file_data.get('created_at'),
+        }
 
         # Initialize the drafting graph state
         initial_state: DraftingState = {
-            "user_facts": request.user_facts,
-            "case_file": request.case_file.model_dump(),
+            "user_facts": user_facts,
+            "case_file": case_file_for_graph,
         }
 
-        # Add optional legal question
+        # Add optional legal question and additional instructions
         if request.legal_question:
             initial_state["legal_question"] = request.legal_question
+        
+        if request.additional_drafting_instructions:
+            initial_state["additional_drafting_instructions"] = request.additional_drafting_instructions
 
         # Execute the drafting graph
         final_state = await drafting_graph.ainvoke(initial_state)
@@ -314,7 +347,6 @@ async def create_case_file(request: CreateCaseFileRequest):
             title=request.title,
             description=request.description,
             user_facts=request.user_facts,
-            legal_question=request.legal_question,
         )
 
         logger.info(f"Created new case file with ID: {case_file_id}")
@@ -376,7 +408,6 @@ async def update_case_file(case_file_id: int, request: UpdateCaseFileRequest):
             title=request.title,
             description=request.description,
             user_facts=request.user_facts,
-            legal_question=request.legal_question,
         )
 
         if not success:
@@ -631,36 +662,87 @@ async def delete_argument_draft(draft_id: int):
         )
 
 
-# Modified argument drafting endpoint to optionally save the draft
-@app.post("/api/v1/generation/draft-argument", response_model=ArgumentDraftResponse)
-async def draft_argument(
-    request: ArgumentDraftRequest, save_to_case_file: Optional[int] = None
-):
-    """
-    Generate legal argument using the Drafting Graph.
+@app.put("/api/v1/drafts/{draft_id}", response_model=Dict[str, bool])
+async def update_draft(draft_id: int, request: UpdateDraftRequest):
+    """Update a draft with manual edits."""
+    try:
+        success = ArgumentDraftService.update_draft(
+            draft_id=draft_id,
+            drafted_argument=request.drafted_argument,
+            title=request.title
+        )
 
-    Optionally save the generated draft to a specified case file.
-    """
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Draft {draft_id} not found",
+            )
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating draft {draft_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update draft: {str(e)}",
+        )
+
+
+@app.post("/api/v1/drafts/ai-edit", response_model=ArgumentDraftResponse)
+async def ai_edit_draft(request: EditDraftRequest):
+    """Edit a draft using AI assistance."""
     start_time = time.time()
 
     try:
-        logger.info(f"Received request: {request}")
-        logger.info(f"Case file: {request.case_file}")
-        logger.info(
-            f"Starting argument drafting for case with {len(request.case_file.documents)} precedents"
-        )
+        logger.info(f"Starting AI edit for draft ID: {request.draft_id}")
 
-        # Initialize the drafting graph state
-        initial_state: DraftingState = {
-            "user_facts": request.user_facts,
-            "case_file": request.case_file.model_dump(),
+        # Get the existing draft
+        draft = ArgumentDraftService.get_draft(request.draft_id)
+        if not draft:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Draft {request.draft_id} not found",
+            )
+
+        # Get the case file to provide context
+        case_file_data = CaseFileService.get_case_file(draft["case_file_id"])
+        if not case_file_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case file {draft['case_file_id']} not found",
+            )
+
+        # Extract user facts from case file
+        user_facts = case_file_data.get('user_facts', '')
+        if not user_facts or not user_facts.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Case file must contain case facts for AI editing",
+            )
+
+        # Build case file structure for the editing process
+        case_file_for_graph = {
+            "documents": case_file_data.get('documents', []),
+            "total_documents": case_file_data.get('total_documents', 0),
+            "created_at": case_file_data.get('created_at'),
         }
 
-        # Add optional legal question
-        if request.legal_question:
-            initial_state["legal_question"] = request.legal_question
+        # Initialize the drafting graph state for editing
+        initial_state: DraftingState = {
+            "user_facts": user_facts,
+            "case_file": case_file_for_graph,
+            "existing_draft": draft["drafted_argument"],
+            "edit_instructions": request.edit_instructions,
+            "is_editing": True,
+        }
 
-        # Execute the drafting graph
+        # If the draft has strategy information, include it
+        if draft.get("strategy"):
+            initial_state["proposed_strategy"] = draft["strategy"]
+
+        # Execute the drafting graph for editing
         final_state = await drafting_graph.ainvoke(initial_state)
 
         execution_time = time.time() - start_time
@@ -730,29 +812,297 @@ async def draft_argument(
             execution_time=execution_time,
         )
 
-        # Optionally save to case file
-        if save_to_case_file:
-            try:
-                draft_id = ArgumentDraftService.save_draft(
-                    case_file_id=save_to_case_file, draft_response=response
-                )
-                logger.info(
-                    f"Saved draft with ID {draft_id} to case file {save_to_case_file}"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to save draft to case file {save_to_case_file}: {e}"
-                )
-                # Don't fail the whole request if saving fails
+        # Update the draft in the database
+        ArgumentDraftService.update_draft_with_response(
+            draft_id=request.draft_id,
+            draft_response=response
+        )
 
-        logger.info(f"Argument drafting completed in {execution_time:.2f}s")
+        logger.info(f"AI draft editing completed in {execution_time:.2f}s")
         return response
 
     except Exception as e:
-        logger.error(f"Error in argument drafting: {e}", exc_info=True)
+        logger.error(f"Error in AI draft editing: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Argument drafting failed: {str(e)}",
+            detail=f"AI draft editing failed: {str(e)}",
+        )
+
+
+# Moot Court Endpoints
+@app.post("/api/v1/moot-court/generate-counterarguments", response_model=GenerateCounterArgumentsResponse)
+async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
+    """
+    Generate counterarguments for moot court practice using RAG-based analysis.
+    
+    This endpoint uses a sophisticated RAG workflow that leverages the Neo4j knowledge graph
+    to find opposing precedents, analyze argument vulnerabilities, and generate comprehensive
+    counterarguments with supporting rebuttals.
+    """
+    start_time = time.time()
+    
+    try:
+        logger.info(f"Starting RAG-based counterargument generation for case file ID: {request.case_file_id}")
+        
+        # Get the case file to retrieve context and documents
+        case_file_data = CaseFileService.get_case_file(request.case_file_id)
+        if not case_file_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case file {request.case_file_id} not found",
+            )
+        
+        # Get the specific draft if provided
+        draft_data = None
+        key_arguments = []
+        
+        if request.draft_id:
+            draft_data = ArgumentDraftService.get_draft(request.draft_id)
+            if not draft_data:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Draft {request.draft_id} not found",
+                )
+            
+            # Extract key arguments from the draft's strategy
+            if draft_data.get("strategy") and draft_data["strategy"].get("key_arguments"):
+                key_arguments = draft_data["strategy"]["key_arguments"]
+        
+        if not key_arguments:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No key arguments found in the selected draft",
+            )
+        
+        # Extract user facts from case file for context
+        user_facts = case_file_data.get('user_facts', '')
+        if not user_facts:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Case file must contain case facts for counterargument generation",
+            )
+        
+        # Prepare case file documents for the graph
+        case_file_documents = case_file_data.get('documents', [])
+        
+        # Initialize the counterargument graph state
+        initial_state: CounterArgumentState = {
+            "case_file_id": request.case_file_id,
+            "user_facts": user_facts,
+            "key_arguments": key_arguments,
+            "case_file_documents": case_file_documents,
+        }
+        
+        if request.draft_id:
+            initial_state["draft_id"] = request.draft_id
+        
+        # Execute the counterargument graph workflow
+        logger.info("Executing RAG-based counterargument generation workflow")
+        final_state = await counterargument_graph.ainvoke(initial_state)
+        
+        # Extract results from the final state
+        counterarguments = final_state.get("generated_counterarguments", [])
+        rebuttals = final_state.get("counterargument_rebuttals", [])
+        
+        # Convert to response format
+        response_counterarguments = []
+        for ca in counterarguments:
+            response_counterarguments.append(CounterArgument(
+                title=ca.get("title", ""),
+                argument=ca.get("argument", ""),
+                supporting_authority=ca.get("supporting_authority", ""),
+                factual_basis=ca.get("factual_basis", ""),
+                strength_assessment=ca.get("strength_assessment")
+            ))
+        
+        response_rebuttals = []
+        for rebuttal_group in rebuttals:
+            group = []
+            for reb in rebuttal_group:
+                group.append(CounterArgumentRebuttal(
+                    title=reb.get("title", ""),
+                    content=reb.get("content", ""),
+                    authority=reb.get("authority", "")
+                ))
+            response_rebuttals.append(group)
+        
+        execution_time = time.time() - start_time
+        
+        response = GenerateCounterArgumentsResponse(
+            counterarguments=response_counterarguments,
+            rebuttals=response_rebuttals,
+            execution_time=execution_time
+        )
+        
+        # Log RAG retrieval statistics
+        research_comprehensiveness = final_state.get("research_comprehensiveness", 0.0)
+        counterargument_strength = final_state.get("counterargument_strength", 0.0)
+        rebuttal_quality = final_state.get("rebuttal_quality", 0.0)
+        
+        logger.info(
+            f"RAG counterargument generation completed in {execution_time:.2f}s. "
+            f"Research comprehensiveness: {research_comprehensiveness:.2f}, "
+            f"Counterargument strength: {counterargument_strength:.2f}, "
+            f"Rebuttal quality: {rebuttal_quality:.2f}"
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in RAG counterargument generation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Counterargument generation failed: {str(e)}",
+        )
+
+
+@app.post("/api/v1/moot-court/save-session", response_model=Dict[str, int])
+async def save_moot_court_session(request: SaveMootCourtSessionRequest):
+    """Save a moot court session to the database."""
+    try:
+        # Convert Pydantic models to dict format for storage
+        counterarguments_data = [ca.dict() for ca in request.counterarguments]
+        rebuttals_data = [[reb.dict() for reb in group] for group in request.rebuttals]
+        
+        session_id = MootCourtSessionService.save_session(
+            case_file_id=request.case_file_id,
+            draft_id=request.draft_id,
+            title=request.title,
+            counterarguments=counterarguments_data,
+            rebuttals=rebuttals_data,
+            source_arguments=request.source_arguments,
+            research_context=request.research_context,
+            counterargument_strength=request.counterargument_strength,
+            research_comprehensiveness=request.research_comprehensiveness,
+            rebuttal_quality=request.rebuttal_quality,
+            execution_time=request.execution_time,
+        )
+
+        logger.info(f"Saved moot court session with ID: {session_id}")
+        return {"session_id": session_id}
+
+    except Exception as e:
+        logger.error(f"Error saving moot court session: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save moot court session: {str(e)}",
+        )
+
+
+@app.get(
+    "/api/v1/case-files/{case_file_id}/moot-court-sessions",
+    response_model=List[MootCourtSessionListItem],
+)
+async def list_moot_court_sessions_for_case_file(case_file_id: int):
+    """List all moot court sessions for a case file."""
+    try:
+        sessions = MootCourtSessionService.list_sessions_for_case_file(case_file_id)
+        return sessions
+
+    except Exception as e:
+        logger.error(
+            f"Error listing moot court sessions for case file {case_file_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list moot court sessions: {str(e)}",
+        )
+
+
+@app.get("/api/v1/moot-court-sessions/{session_id}", response_model=SavedMootCourtSession)
+async def get_moot_court_session(session_id: int):
+    """Get a specific moot court session."""
+    try:
+        session = MootCourtSessionService.get_session(session_id)
+
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Moot court session {session_id} not found",
+            )
+
+        # Convert stored data back to Pydantic models
+        counterarguments = [CounterArgument(**ca) for ca in session["counterarguments"]]
+        rebuttals = [[CounterArgumentRebuttal(**reb) for reb in group] for group in session["rebuttals"]]
+
+        return SavedMootCourtSession(
+            id=session["id"],
+            case_file_id=session["case_file_id"],
+            draft_id=session["draft_id"],
+            title=session["title"],
+            counterarguments=counterarguments,
+            rebuttals=rebuttals,
+            source_arguments=session["source_arguments"],
+            research_context=session["research_context"],
+            counterargument_strength=session["counterargument_strength"],
+            research_comprehensiveness=session["research_comprehensiveness"],
+            rebuttal_quality=session["rebuttal_quality"],
+            execution_time=session["execution_time"],
+            created_at=session["created_at"],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting moot court session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get moot court session: {str(e)}",
+        )
+
+
+@app.delete("/api/v1/moot-court-sessions/{session_id}")
+async def delete_moot_court_session(session_id: int):
+    """Delete a moot court session."""
+    try:
+        success = MootCourtSessionService.delete_session(session_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Moot court session {session_id} not found",
+            )
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting moot court session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete moot court session: {str(e)}",
+        )
+
+
+@app.put("/api/v1/moot-court-sessions/{session_id}/title")
+async def update_moot_court_session_title(session_id: int, request: Dict[str, str]):
+    """Update a moot court session's title."""
+    try:
+        title = request.get("title")
+        if not title:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Title is required",
+            )
+
+        success = MootCourtSessionService.update_session_title(session_id, title)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Moot court session {session_id} not found",
+            )
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating moot court session title {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update moot court session title: {str(e)}",
         )
 
 

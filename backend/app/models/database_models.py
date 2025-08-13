@@ -21,8 +21,7 @@ class CaseFile(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    user_facts = Column(Text, nullable=True)
-    legal_question = Column(Text, nullable=True)
+    user_facts = Column(Text, nullable=True)  # Static case facts - now belongs to case file
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -32,6 +31,9 @@ class CaseFile(Base):
     )
     drafts = relationship(
         "ArgumentDraft", back_populates="case_file", cascade="all, delete-orphan"
+    )
+    moot_court_sessions = relationship(
+        "MootCourtSession", back_populates="case_file", cascade="all, delete-orphan"
     )
 
 
@@ -91,3 +93,39 @@ class ArgumentDraft(Base):
 
     # Relationships
     case_file = relationship("CaseFile", back_populates="drafts")
+
+
+class MootCourtSession(Base):
+    """
+    Model for storing moot court practice sessions with counterarguments and rebuttals.
+    """
+
+    __tablename__ = "moot_court_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_file_id = Column(Integer, ForeignKey("case_files.id"), nullable=False)
+    draft_id = Column(Integer, ForeignKey("argument_drafts.id"), nullable=True)
+    title = Column(String(255), nullable=False)
+
+    # Session content
+    counterarguments = Column(JSON, nullable=False)  # List of counterargument objects
+    rebuttals = Column(JSON, nullable=False)  # List of rebuttal groups for each counterargument
+    
+    # Source arguments that were analyzed
+    source_arguments = Column(JSON, nullable=True)  # Key arguments from the selected draft
+    
+    # RAG retrieval context
+    research_context = Column(JSON, nullable=True)  # Summary of retrieved knowledge
+    
+    # Quality metrics
+    counterargument_strength = Column(Float, nullable=True)
+    research_comprehensiveness = Column(Float, nullable=True)
+    rebuttal_quality = Column(Float, nullable=True)
+    
+    # Metadata
+    execution_time = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    case_file = relationship("CaseFile", back_populates="moot_court_sessions")
+    draft = relationship("ArgumentDraft")

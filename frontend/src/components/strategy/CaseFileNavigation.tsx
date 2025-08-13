@@ -18,8 +18,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
   const [createForm, setCreateForm] = useState<CreateCaseFileRequest>({
     title: '',
     description: '',
-    user_facts: '',
-    legal_question: ''
+    user_facts: ''
   });
 
   useEffect(() => {
@@ -44,7 +43,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
       const result = await apiClient.createCaseFile(createForm);
       await loadCaseFiles();
       onSelectCaseFile(result.case_file_id);
-      setCreateForm({ title: '', description: '', user_facts: '', legal_question: '' });
+      setCreateForm({ title: '', description: '', user_facts: '' });
       setShowCreateForm(false);
     } catch (error) {
       console.error('Failed to create case file:', error);
@@ -121,6 +120,16 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
                 onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 rows={2}
+              />
+            </div>
+            <div>
+              <textarea
+                placeholder="Case facts - Describe the key facts of your case *"
+                required
+                value={createForm.user_facts}
+                onChange={(e) => setCreateForm({ ...createForm, user_facts: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                rows={3}
               />
             </div>
             <div className="flex gap-2">

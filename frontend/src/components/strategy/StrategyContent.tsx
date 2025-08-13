@@ -40,7 +40,7 @@ const StrategyContent: React.FC = () => {
         </div>
 
         {/* Case File Navigation */}
-        <div className="max-w-md mx-auto">
+        <div className="w-full">
           <CaseFileNavigation 
             onSelectCaseFile={handleSelectCaseFile}
             selectedCaseFileId={selectedCaseFileId}
@@ -51,4 +51,4 @@ const StrategyContent: React.FC = () => {
   );
 };
 
-export default StrategyContent; 
+export default StrategyContent;
