@@ -6,3 +6,6 @@ data/
 
 # Cache directory for LLM results (embeddings, summaries, entities)
 cache/
+node_modules/
+package-lock.json
+package.json
