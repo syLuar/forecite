@@ -118,7 +118,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, caseFileId, 
 
   // Re-search when filters change (only if already searched) - NO LOADING
   useEffect(() => {
-    if (hasSearched && query.trim()) {
+    if (hasSearched) {
       // Create a local version to avoid dependency issues
       const searchWithFilters = async () => {
         setError(null);
@@ -152,7 +152,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, caseFileId, 
 
       searchWithFilters();
     }
-  }, [filters.category, filters.jurisdiction, hasSearched, query]); // Only include stable dependencies
+  }, [filters.category, filters.jurisdiction]); // Removed hasSearched and query dependencies
 
   if (!isOpen) return null;
 

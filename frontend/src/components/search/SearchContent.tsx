@@ -156,7 +156,7 @@ const SearchContent: React.FC = () => {
 
   // Re-search when filters change (only if already searched) - NO LOADING
   useEffect(() => {
-    if (hasSearched && query.trim()) {
+    if (hasSearched) {
       // Create a local version to avoid dependency issues
       const searchWithFilters = async () => {
         setError(null);
@@ -207,7 +207,7 @@ const SearchContent: React.FC = () => {
 
       searchWithFilters();
     }
-  }, [filters.category, filters.jurisdiction, hasSearched, query]); // Only include stable dependencies
+  }, [filters.category, filters.jurisdiction]); // Removed hasSearched and query dependencies
 
   // Show streaming modal when streaming starts
   useEffect(() => {
