@@ -1243,7 +1243,7 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
     """
     final_state = None
     if chunk_processor is None:
-        async def chunk_processor(chunk):
+        async def chunk_processor(chunk, stream_mode):
             def process_chunk(chunk_dict):
                 processed_chunk = {}
                 for key, value in chunk_dict.items():
@@ -1268,7 +1268,7 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
             
     # Stream the graph execution
     async for chunk in graph.astream(initial_state, stream_mode=stream_mode):
-        yield f"data: {json.dumps(await chunk_processor(chunk), default=str)}\n\n"
+        yield f"data: {json.dumps(await chunk_processor(chunk, stream_mode), default=str)}\n\n"
         # Keep track of the final state
         if isinstance(chunk, tuple):
             _stream_type, chunk = chunk

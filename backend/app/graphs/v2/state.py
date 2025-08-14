@@ -171,6 +171,12 @@ class DraftingState(TypedDict):
     drafted_argument: NotRequired[str]
     argument_structure: NotRequired[Dict[str, Any]]
     citations_used: NotRequired[List[str]]
+    proposed_strategy: NotRequired[Dict[str, Any]]  # Frontend compatibility - structured strategy with key_arguments
+    
+    # Quality metrics (for frontend compatibility)
+    argument_strength: NotRequired[float]
+    precedent_coverage: NotRequired[float]
+    logical_coherence: NotRequired[float]
     
     # Flow control
     revision_count: NotRequired[int]

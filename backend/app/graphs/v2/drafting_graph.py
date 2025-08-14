@@ -50,7 +50,7 @@ llm = ChatGoogleGenerativeAI(google_api_key=settings.google_api_key, **drafting_
 class LegalIssueAnalysisOutput(BaseModel):
     """Simple legal issue identification."""
     primary_issue: str = Field(description="Main legal issue")
-    secondary_issues: List[str] = Field(description="Supporting issues", max_items=3)
+    secondary_issues: List[str] = Field(description="Supporting issues (up to 3)")
     applicable_law: str = Field(description="Relevant legal framework")
 
 
@@ -66,6 +66,13 @@ class SingleArgumentOutput(BaseModel):
     argument: str = Field(description="Specific legal argument")
     authority: str = Field(description="Supporting case/statute")
     reasoning: str = Field(description="How facts support argument")
+
+
+class MultipleArgumentsOutput(BaseModel):
+    """Multiple arguments structure."""
+    arguments: List[SingleArgumentOutput] = Field(
+        description="List of 2-4 legal arguments supporting the strategy"
+    )
 
 
 class SimpleAssessmentOutput(BaseModel):
@@ -257,9 +264,9 @@ Focus on the big picture strategy, not specific arguments."""
 
 async def argument_builder_node(state: DraftingState) -> DraftingState:
     """
-    Build specific arguments iteratively.
+    Build specific arguments all at once.
     
-    This node generates arguments one at a time for better focus.
+    This node generates all arguments (2-4) in one shot and lets the LLM decide how many to create.
     """
     step_id = f"argument_builder_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
@@ -277,71 +284,80 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
     user_facts = state["user_facts"]
     party_represented = state.get("party_represented", "")
 
-    # Create structured LLM for argument generation
-    structured_llm = llm.with_structured_output(SingleArgumentOutput)
+    # Create structured LLM for multiple argument generation
+    structured_llm = llm.with_structured_output(MultipleArgumentsOutput)
 
     party_context = ""
     if party_represented:
-        party_context = f"\n\nCRITICAL: You are representing the {party_represented}. Each argument must advance the {party_represented}'s position and be framed from the {party_represented}'s perspective. Consider how this argument helps the {party_represented} win their case."
+        party_context = f"\n\nCRITICAL: You are representing the {party_represented}. Each argument must advance the {party_represented}'s position and be framed from the {party_represented}'s perspective. Consider how these arguments help the {party_represented} win their case."
 
-    # Generate 3 arguments iteratively
-    arguments = []
-    for i in range(3):
-        system_prompt = f"""You are a legal argument specialist. Your ONLY job is to create ONE specific legal argument.
+    system_prompt = f"""You are a legal argument specialist. Your job is to create multiple specific legal arguments (between 2-4) that support the strategy.
 
 Core strategy: {core_strategy.get('main_thesis', '')}
 Legal theory: {core_strategy.get('legal_theory', '')}
 {party_context}
 
-Create argument #{i+1} that supports this strategy. Each argument should:
+Generate between 2-4 compelling legal arguments that collectively support this strategy. Each argument should:
 1. Make a specific legal point
 2. Cite supporting authority (case/statute)
 3. Explain how the facts support this point
 
-Be specific and focused on this ONE argument only."""
+Ensure the arguments complement each other and provide comprehensive support for the strategy. Use your judgment to determine the optimal number of arguments (2-4) based on the strength and complexity of the case."""
 
-        prompt_content = f"Facts: {user_facts}"
-        if party_represented:
-            prompt_content += f"\n\nParty Represented: {party_represented}"
-        prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+    prompt_content = f"Facts: {user_facts}"
+    if party_represented:
+        prompt_content += f"\n\nParty Represented: {party_represented}"
+    prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
 
-        prompt_template = ChatPromptTemplate.from_messages([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"{prompt_content}\n\nCreate a specific legal argument that supports the strategy.")
-        ])
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"{prompt_content}\n\nCreate multiple legal arguments that support the strategy.")
+    ])
 
-        try:
-            argument_output = await structured_llm.ainvoke(prompt_template.format_messages())
-            
+    try:
+        arguments_output = await structured_llm.ainvoke(prompt_template.format_messages())
+        
+        # Convert to expected format
+        arguments = []
+        for arg_output in arguments_output.arguments:
             arguments.append({
-                "argument": argument_output.argument,
-                "authority": argument_output.authority,
-                "reasoning": argument_output.reasoning
+                "argument": arg_output.argument,
+                "authority": arg_output.authority,
+                "reasoning": arg_output.reasoning
             })
-            
-            logger.info(f"Generated argument {i+1}: {argument_output.argument[:50]}...")
-            
-        except Exception as e:
-            logger.error(f"Error generating argument {i+1}: {e}")
-            # Fallback argument
-            party_text = f" for the {party_represented}" if party_represented else ""
+        
+        # Store arguments in state
+        state["arguments"] = arguments
+        logger.info(f"Generated {len(arguments)} legal arguments in one shot")
+        
+        # Stream completion update
+        writer({
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Arguments built",
+            "description": f"Built {len(arguments)} supporting arguments for the legal strategy"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating arguments: {e}")
+        # Fallback - generate 3 basic arguments
+        party_text = f" for the {party_represented}" if party_represented else ""
+        arguments = []
+        for i in range(3):
             arguments.append({
                 "argument": f"Legal principle {i+1} supports client's position{party_text}",
                 "authority": "Applicable case law",
                 "reasoning": "Facts demonstrate this principle applies"
             })
-
-    # Store arguments in state
-    state["arguments"] = arguments
-    logger.info(f"Built {len(arguments)} legal arguments")
-    
-    # Stream completion update
-    writer({
-        "step_id": step_id,
-        "status": "complete",
-        "brief_description": "Arguments built",
-        "description": f"Built {len(arguments)} supporting arguments for the legal strategy"
-    })
+        state["arguments"] = arguments
+        
+        # Still update the stream with fallback
+        writer({
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Arguments built (fallback)",
+            "description": f"Built {len(arguments)} supporting arguments (using fallback due to error)"
+        })
     
     return state
 
@@ -574,7 +590,7 @@ Draft a comprehensive legal argument that implements this strategy.""")
         response = await llm.ainvoke(prompt_template.format_messages())
         drafted_argument = response.content
 
-        # Extract citations
+        # Extract citations used
         citations_used = []
         for arg in arguments:
             if arg.get("authority"):
@@ -588,10 +604,41 @@ Draft a comprehensive legal argument that implements this strategy.""")
             "conclusion": core_strategy.get("main_thesis", "Client's position")
         }
 
-        # Update state
+        # Create strategy object for frontend compatibility
+        # Convert v2 arguments format to v1 key_arguments format expected by frontend
+        key_arguments = []
+        for arg in arguments:
+            key_arguments.append({
+                "argument": arg.get("argument", ""),
+                "supporting_authority": arg.get("authority", ""),
+                "factual_basis": arg.get("reasoning", "")
+            })
+
+        # Build strategy object matching v1 format for frontend compatibility
+        strategy = {
+            "main_thesis": core_strategy.get("main_thesis", ""),
+            "argument_type": core_strategy.get("legal_theory", "precedential"),
+            "primary_precedents": citations_used,
+            "legal_framework": legal_issue_analysis.get("applicable_law", ""),
+            "key_arguments": key_arguments,
+            "anticipated_counterarguments": [],  # Not implemented in v2 yet
+            "strength_assessment": core_strategy.get("strength_rating", 0.7),
+            "risk_factors": []  # Not implemented in v2 yet
+        }
+
+        # Calculate quality metrics for frontend compatibility
+        argument_strength = core_strategy.get("strength_rating", 0.7)
+        precedent_coverage = min(len(citations_used) / max(len(case_file.get("documents", [])), 1), 1.0) if case_file.get("documents") else 0.7
+        logical_coherence = state.get("strategy_assessment", {}).get("score", 0.7)
+
+        # Update state with all required fields
         state["drafted_argument"] = drafted_argument
         state["argument_structure"] = argument_structure
         state["citations_used"] = citations_used
+        state["proposed_strategy"] = strategy  # Frontend compatibility
+        state["argument_strength"] = argument_strength
+        state["precedent_coverage"] = precedent_coverage
+        state["logical_coherence"] = logical_coherence
         state["workflow_stage"] = "completed"
 
         logger.info(f"Final argument drafted: {len(drafted_argument.split())} words")
@@ -611,6 +658,7 @@ Draft a comprehensive legal argument that implements this strategy.""")
         state["drafted_argument"] = "Error occurred during drafting"
         state["argument_structure"] = {}
         state["citations_used"] = []
+        state["strategy"] = {}
 
     return state
 

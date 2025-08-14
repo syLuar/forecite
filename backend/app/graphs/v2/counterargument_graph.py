@@ -185,9 +185,8 @@ async def vulnerability_analysis_node(state: CounterArgumentState) -> CounterArg
     
     party_context = ""
     if party_represented:
-        # Determine opposing party perspective for vulnerability analysis
-        opposing_party = get_opposing_party(party_represented)
-        party_context = f"\n\nCRITICAL: You are analyzing arguments made by the {party_represented}, but you must think like the {opposing_party} to identify vulnerabilities. What weaknesses would the {opposing_party} exploit? How would the {opposing_party} challenge these arguments?"
+        # For vulnerability analysis, think from the opposing party's perspective
+        party_context = f"\n\nCRITICAL: You are analyzing arguments made by {party_represented}, but you must think like opposing counsel to identify vulnerabilities. What weaknesses would the opposing party exploit? How would they challenge {party_represented}'s arguments?"
     
     # Analyze each argument for vulnerabilities
     for i, argument in enumerate(key_arguments[:3]):  # Limit to 3 arguments
@@ -270,19 +269,6 @@ Identify ONE specific vulnerability in this argument.""")
     })
     
     return state
-
-
-def get_opposing_party(party_represented: str) -> str:
-    """Helper function to determine the opposing party."""
-    party_mapping = {
-        "Plaintiff": "Defendant",
-        "Defendant": "Plaintiff", 
-        "Petitioner": "Respondent",
-        "Respondent": "Petitioner",
-        "Appellant": "Appellee",
-        "Appellee": "Appellant"
-    }
-    return party_mapping.get(party_represented, "opposing party")
 
 
 async def challenge_identifier_node(state: CounterArgumentState) -> CounterArgumentState:
@@ -404,8 +390,7 @@ async def counterargument_developer_node(state: CounterArgumentState) -> Counter
     
     party_context = ""
     if party_represented:
-        opposing_party = get_opposing_party(party_represented)
-        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now arguing as the {opposing_party} against the {party_represented}'s arguments. Frame your counterarguments from the {opposing_party}'s perspective and interests. What would the {opposing_party} argue to defeat the {party_represented}'s position?"
+        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now arguing as opposing counsel against {party_represented}'s arguments. Frame your counterarguments from the opposing party's perspective and interests. What would the opposing party argue to defeat {party_represented}'s position?"
     
     # Develop each seed into a full counterargument
     for i, seed in enumerate(seeds):
@@ -442,8 +427,7 @@ Write as if you are an experienced opposing counsel making this argument in cour
 
         prompt_content = f"Case facts: {user_facts}"
         if party_represented:
-            opposing_party = get_opposing_party(party_represented)
-            prompt_content += f"\n\nParty Context: You are arguing for the {opposing_party} against the {party_represented}"
+            prompt_content += f"\n\nParty Context: You are arguing for the opposing party against {party_represented}"
         
         retrieved_context = "\n".join([
             f"- {doc.get('document_citation', 'Unknown')}: {doc.get('text', '')[:150]}"
@@ -526,8 +510,7 @@ async def rebuttal_generator_node(state: CounterArgumentState) -> CounterArgumen
     
     party_context = ""
     if party_represented:
-        opposing_party = get_opposing_party(party_represented)
-        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now back to representing the {party_represented}. The counterarguments were made by the {opposing_party}. Generate rebuttals that defend the {party_represented}'s position and refute the {opposing_party}'s challenges. Frame your rebuttals from the {party_represented}'s perspective and interests."
+        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now back to representing {party_represented}. The counterarguments were made by opposing counsel. Generate rebuttals that defend {party_represented}'s position and refute the opposing party's challenges. Frame your rebuttals from {party_represented}'s perspective and interests."
     
     # Generate rebuttals for each counterargument
     for i, ca in enumerate(counterarguments):
@@ -563,8 +546,7 @@ Write as if you are defending your position in court against this challenge."""
 
         prompt_content = "Generate a rebuttal to counter this challenge."
         if party_represented:
-            opposing_party = get_opposing_party(party_represented)
-            prompt_content += f"\n\nParty Context: You are defending the {party_represented}'s position against the {opposing_party}'s counterargument."
+            prompt_content += f"\n\nParty Context: You are defending {party_represented}'s position against the opposing party's counterargument."
 
         prompt_template = ChatPromptTemplate.from_messages([
             SystemMessage(content=system_prompt),

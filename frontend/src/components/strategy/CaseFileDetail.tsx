@@ -94,7 +94,6 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
 
   const processStreamingChunk = useCallback((chunk: any) => {
     if (chunk.stream_type === 'custom' && chunk.data?.brief_description) {
-      // Use step_id from backend if available, otherwise generate one based on brief_description
       const stepId = chunk.data.step_id || chunk.data.brief_description.toLowerCase().replace(/\s+/g, '_');
       
       const newStep: StreamingStep = {
@@ -107,16 +106,13 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       };
 
       setStreamingSteps(prev => {
-        // Check if this step already exists
         const existingIndex = prev.findIndex(step => step.id === stepId);
         
         if (existingIndex >= 0) {
-          // Update existing step (for completion updates)
           const updated = [...prev];
           updated[existingIndex] = { ...updated[existingIndex], ...newStep };
           return updated;
         } else {
-          // Add new step
           return [...prev, newStep];
         }
       });
@@ -124,10 +120,9 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   }, []);
 
   const handleStreamingComplete = useCallback((finalResponse: any) => {
-    // Mark final step as completed
     setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
-    
-    setDraftedArgument(finalResponse);
+    const responseData = finalResponse?.data || finalResponse;
+    setDraftedArgument(responseData);
     setShowArgumentDraft(true);
     setShowDraftModal(false);
     setIsStreaming(false);
@@ -473,20 +468,15 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
         const streamingCallbacks: StreamingCallbacks = {
           onChunk: processStreamingChunk,
           onComplete: async (finalResponse: any) => {
-            // Mark final step as completed
             setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
-            
-            // Reload drafts and update viewing draft if it's the same one
             await loadCaseFileData();
             if (viewingDraft && viewingDraft.id === editingDraftId) {
               const updatedDraft = await apiClient.getDraft(editingDraftId);
               setViewingDraft(updatedDraft);
             }
-            
             setEditingDraftId(null);
             setIsStreaming(false);
             setIsAIEditing(false);
-            
             setSuccessDetails({
               title: 'AI Edit Completed',
               message: 'Your draft has been successfully edited with AI assistance.'
@@ -528,7 +518,6 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
         setShowSuccessModal(true);
       }
     } catch (error) {
-      console.error('Failed to edit draft with AI:', error);
       alert('Failed to edit draft with AI. Please try again.');
       setIsAIEditing(false);
       setIsStreaming(false);
@@ -981,9 +970,9 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                   {currentDraft.strategy.key_arguments.map((arg: any, index: number) => (
                     <div key={index} className="border-l-4 border-primary pl-4">
                       <h4 className="font-medium text-gray-900 mb-2">Argument {index + 1}</h4>
-                      <p className="text-gray-700 mb-2">{arg.argument}</p>
-                      <p className="text-sm text-gray-600"><strong>Authority:</strong> {arg.supporting_authority}</p>
-                      <p className="text-sm text-gray-600"><strong>Factual Basis:</strong> {arg.factual_basis}</p>
+                      <p className="text-gray-700 mb-2">{arg.argument || 'No argument text provided'}</p>
+                      <p className="text-sm text-gray-600"><strong>Authority:</strong> {arg.supporting_authority || 'No authority provided'}</p>
+                      <p className="text-sm text-gray-600"><strong>Factual Basis:</strong> {arg.factual_basis || 'No factual basis provided'}</p>
                     </div>
                   ))}
                 </div>
