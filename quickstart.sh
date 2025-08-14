@@ -214,6 +214,17 @@ setup_frontend() {
         print_status "Frontend dependencies already installed, checking for updates..."
         npm install
     fi
+
+    if [ ! -f ".env" ]; then
+        if [ -f ".env.example" ]; then
+            print_warning ".env file not found. Copying from .env.example..."
+            cp .env.example .env
+            print_warning "Please configure your .env file with a proper React app configuration!"
+        else
+            print_error ".env.example file not found. Please create a .env file manually."
+            exit 1
+        fi
+    fi
     
     cd ..
     print_success "Frontend setup complete!"
