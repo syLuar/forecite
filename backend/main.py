@@ -46,8 +46,7 @@ from app.models.schemas import (
     MootCourtSessionListItem,
     SavedMootCourtSession,
 )
-from app.graphs import research_graph, drafting_graph, counterargument_graph
-from app.graphs.state import ResearchState, DraftingState, CounterArgumentState
+from app.graphs import research_graph, drafting_graph, counterargument_graph, ResearchState, DraftingState, CounterArgumentState
 from app.tools.neo4j_tools import close_neo4j_connection
 from app.services.case_file_service import CaseFileService, ArgumentDraftService, MootCourtSessionService
 from app.core.database import create_tables
@@ -1235,20 +1234,27 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
         graph: The LangGraph to execute
         initial_state: Initial state for the graph
         response_processor: Function that takes final_state and returns processed response
+        chunk_processor: Optional function to process each chunk before yielding
         stream_mode: Stream mode for the graph execution
     """
     final_state = None
     if chunk_processor is None:
         async def chunk_processor(chunk):
+            def process_chunk(chunk_dict):
+                processed_chunk = {}
+                for key, value in chunk_dict.items():
+                    if isinstance(value, list):
+                        processed_chunk[f"{key}_len"] = len(value)
+                    elif isinstance(value, dict):
+                        processed_chunk[key] = process_chunk(value)
+                    else:
+                        processed_chunk[key] = value
+                return processed_chunk
             processed_chunk = {}
             stream_type = stream_mode
             if isinstance(chunk, tuple):
                 stream_type, chunk = chunk
-            for key, value in chunk.items():
-                if isinstance(value, list):
-                    processed_chunk[f"{key}_len"] = len(value)
-                else:
-                    processed_chunk[key] = value
+            processed_chunk = process_chunk(chunk)
             if stream_type:
                 processed_chunk = {
                     "stream_type": stream_type,
