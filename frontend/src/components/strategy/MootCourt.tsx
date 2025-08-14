@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, ChevronDown, FileText, Swords, X, RefreshCw, Save } from 'lucide-react';
 import { SavedArgumentDraft } from '../../types/api';
-import { apiClient } from '../../services/api';
+import { apiClient, StreamingCallbacks } from '../../services/api';
+import StreamingProgressModal, { StreamingStep } from '../shared/StreamingProgressModal';
 
 interface MootCourtProps {
   caseFileId: number;
@@ -38,6 +39,12 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [sessionTitle, setSessionTitle] = useState('');
   const [saving, setSaving] = useState(false);
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingSteps, setStreamingSteps] = useState<StreamingStep[]>([]);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
+  const [showStreamingModal, setShowStreamingModal] = useState(false);
+  const [streamingTitle, setStreamingTitle] = useState('Processing');
   // Toast notifications state
   const [toasts, setToasts] = useState<{ id: number; type: 'success' | 'error' | 'info'; message: string }[]>([]);
   // Ref for draft selector dropdown
@@ -108,6 +115,59 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
     return draft ? draft.title : 'Unknown draft';
   };
 
+  const processStreamingChunk = useCallback((chunk: any) => {
+    if (chunk.stream_type === 'custom' && chunk.data?.brief_description) {
+      // Use step_id from backend if available, otherwise generate one based on brief_description
+      const stepId = chunk.data.step_id || chunk.data.brief_description.toLowerCase().replace(/\s+/g, '_');
+      
+      const newStep: StreamingStep = {
+        id: stepId,
+        brief_description: chunk.data.brief_description,
+        description: chunk.data.description,
+        status: chunk.data.status === 'in_progress' ? 'in_progress' : 
+                chunk.data.status === 'complete' ? 'complete' : 'active',
+        timestamp: new Date()
+      };
+
+      setStreamingSteps(prev => {
+        // Check if this step already exists
+        const existingIndex = prev.findIndex(step => step.id === stepId);
+        
+        if (existingIndex >= 0) {
+          // Update existing step (for completion updates)
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], ...newStep };
+          return updated;
+        } else {
+          // Add new step
+          return [...prev, newStep];
+        }
+      });
+    }
+  }, []);
+
+  const handleStreamingComplete = useCallback((finalResponse: any) => {
+    // Mark final step as completed
+    setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
+    
+    setCounterArguments(finalResponse.counterarguments);
+    setRebuttals(finalResponse.rebuttals);
+    setIsStreaming(false);
+    setGeneratingCounterArgs(false);
+    showToast('success', 'Counterarguments generated successfully.');
+  }, []);
+
+  const handleStreamingError = useCallback((errorMessage: string) => {
+    setStreamingError(errorMessage);
+    setStreamingSteps(prev => prev.map(step => ({ 
+      ...step, 
+      status: step.status === 'active' ? 'error' as const : step.status 
+    })));
+    setIsStreaming(false);
+    setGeneratingCounterArgs(false);
+    showToast('error', 'Failed to generate counterarguments. Please try again.');
+  }, []);
+
   const generateCounterArguments = async () => {
     if (!selectedDraft) {
       showToast('info', 'Select a draft before generating counterarguments.');
@@ -115,16 +175,51 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
     }
 
     setGeneratingCounterArgs(true);
+    setStreamingError(null);
+    setStreamingSteps([]);
+
     try {
-      const response = await apiClient.generateCounterArguments(caseFileId, selectedDraft.id);
-      setCounterArguments(response.counterarguments);
-      setRebuttals(response.rebuttals);
-      showToast('success', 'Counterarguments generated successfully.');
+      // Check if streaming is enabled
+      const streamingEnabled = process.env.REACT_APP_STREAMING === 'true';
+      
+      if (streamingEnabled) {
+        setIsStreaming(true);
+        setStreamingTitle('Generating Counterarguments');
+        
+        const streamingCallbacks: StreamingCallbacks = {
+          onChunk: processStreamingChunk,
+          onComplete: handleStreamingComplete,
+          onError: handleStreamingError
+        };
+
+        await apiClient.generateCounterArguments(caseFileId, selectedDraft.id, streamingCallbacks);
+      } else {
+        // Fallback to non-streaming
+        const response = await apiClient.generateCounterArguments(caseFileId, selectedDraft.id);
+        setCounterArguments(response.counterarguments);
+        setRebuttals(response.rebuttals);
+        setGeneratingCounterArgs(false);
+        showToast('success', 'Counterarguments generated successfully.');
+      }
     } catch (error) {
       console.error('Failed to generate counterarguments:', error);
       showToast('error', 'Failed to generate counterarguments. Please try again.');
-    } finally {
       setGeneratingCounterArgs(false);
+      setIsStreaming(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isStreaming) {
+      setShowStreamingModal(true);
+    }
+  }, [isStreaming]);
+
+  const handleCloseStreamingModal = () => {
+    if (!isStreaming || streamingError) {
+      setShowStreamingModal(false);
+      setStreamingSteps([]);
+      setStreamingError(null);
     }
   };
 
@@ -369,6 +464,19 @@ const MootCourt: React.FC<MootCourtProps> = ({ caseFileId, caseFileTitle, onBack
             </div>
           </div>
         </div>
+
+        {/* Streaming Progress Modal */}
+        {(isStreaming || streamingSteps.length > 0) && (
+          <StreamingProgressModal
+            isOpen={showStreamingModal}
+            onClose={handleCloseStreamingModal}
+            steps={streamingSteps}
+            isStreaming={isStreaming}
+            error={streamingError || undefined}
+            title={streamingTitle}
+            allowClose={!!streamingError}
+          />
+        )}
       </div>
 
       {/* Rebuttal Modal */}

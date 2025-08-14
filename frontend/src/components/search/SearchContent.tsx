@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Loader2, Send, X, Scale } from 'lucide-react';
 import { LegalDocument } from '../../data/mockSearchData';
 import { SearchFilters as SearchFiltersType } from '../../utils/searchUtils';
-import { apiClient } from '../../services/api';
+import { apiClient, StreamingCallbacks } from '../../services/api';
 import { transformRetrievedDocToLegalDoc } from '../../services/dataTransforms';
 import { ResearchQueryRequest } from '../../types/api';
 import SearchResult from './SearchResult';
 import SearchFilters from './SearchFilters';
+import StreamingProgressModal, { StreamingStep } from '../shared/StreamingProgressModal';
 
 const SearchContent: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -15,6 +16,65 @@ const SearchContent: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingSteps, setStreamingSteps] = useState<StreamingStep[]>([]);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
+  const [showStreamingModal, setShowStreamingModal] = useState(false);
+
+  const processStreamingChunk = useCallback((chunk: any) => {
+    if (chunk.stream_type === 'custom' && chunk.data?.brief_description) {
+      // Use step_id from backend if available, otherwise generate one based on brief_description
+      const stepId = chunk.data.step_id || chunk.data.brief_description.toLowerCase().replace(/\s+/g, '_');
+      
+      const newStep: StreamingStep = {
+        id: stepId,
+        brief_description: chunk.data.brief_description,
+        description: chunk.data.description,
+        status: chunk.data.status === 'in_progress' ? 'in_progress' : 
+                chunk.data.status === 'complete' ? 'complete' : 'active',
+        timestamp: new Date()
+      };
+
+      setStreamingSteps(prev => {
+        // Check if this step already exists
+        const existingIndex = prev.findIndex(step => step.id === stepId);
+        
+        if (existingIndex >= 0) {
+          // Update existing step (for completion updates)
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], ...newStep };
+          return updated;
+        } else {
+          // Add new step
+          return [...prev, newStep];
+        }
+      });
+    }
+  }, []);
+
+  const handleStreamingComplete = useCallback((finalResponse: any) => {
+    // Mark final step as completed
+    setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
+    
+    // Transform API response to UI format
+    const transformedResults = finalResponse.retrieved_docs.map(transformRetrievedDocToLegalDoc);
+    setResults(transformedResults);
+    setIsStreaming(false);
+    setIsLoading(false);
+  }, []);
+
+  const handleStreamingError = useCallback((errorMessage: string) => {
+    setStreamingError(errorMessage);
+    setStreamingSteps(prev => prev.map(step => ({ 
+      ...step, 
+      status: step.status === 'active' ? 'error' as const : step.status 
+    })));
+    setIsStreaming(false);
+    setIsLoading(false);
+    setError('Search failed. Please try again.');
+  }, []);
 
   const handleSearch = useCallback(async (searchQuery: string = query, showLoading: boolean = true) => {
     if (!searchQuery.trim()) {
@@ -28,6 +88,8 @@ const SearchContent: React.FC = () => {
       setIsLoading(true);
     }
     setError(null);
+    setStreamingError(null);
+    setStreamingSteps([]);
     setHasSearched(true);
 
     try {
@@ -44,22 +106,35 @@ const SearchContent: React.FC = () => {
         request.document_type = filters.category === 'precedent' ? 'Case' : 'Statute';
       }
 
-      const response = await apiClient.searchDocuments(request);
+      // Check if streaming is enabled
+      const streamingEnabled = process.env.REACT_APP_STREAMING === 'true';
       
-      // Transform API response to UI format
-      const transformedResults = response.retrieved_docs.map(transformRetrievedDocToLegalDoc);
-      setResults(transformedResults);
+      if (streamingEnabled) {
+        setIsStreaming(true);
+        
+        const streamingCallbacks: StreamingCallbacks = {
+          onChunk: processStreamingChunk,
+          onComplete: handleStreamingComplete,
+          onError: handleStreamingError
+        };
+
+        await apiClient.searchDocuments(request, streamingCallbacks);
+      } else {
+        // Fallback to non-streaming
+        const response = await apiClient.searchDocuments(request);
+        const transformedResults = response.retrieved_docs.map(transformRetrievedDocToLegalDoc);
+        setResults(transformedResults);
+        setIsLoading(false);
+      }
       
     } catch (err) {
       console.error('Search failed:', err);
       setError('Search failed. Please try again.');
       setResults([]);
-    } finally {
-      if (showLoading) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
+      setIsStreaming(false);
     }
-  }, [filters]);
+  }, [filters, processStreamingChunk, handleStreamingComplete, handleStreamingError]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +146,8 @@ const SearchContent: React.FC = () => {
     setQuery('');
     setResults([]);
     setHasSearched(false);
+    setStreamingSteps([]);
+    setStreamingError(null);
   };
 
   const handleFiltersChange = (newFilters: SearchFiltersType) => {
@@ -79,10 +156,74 @@ const SearchContent: React.FC = () => {
 
   // Re-search when filters change (only if already searched) - NO LOADING
   useEffect(() => {
-    if (hasSearched) {
-      handleSearch(query, false); // No loading for filter changes
+    if (hasSearched && query.trim()) {
+      // Create a local version to avoid dependency issues
+      const searchWithFilters = async () => {
+        setError(null);
+        setStreamingError(null);
+        setStreamingSteps([]);
+
+        try {
+          const request: ResearchQueryRequest = {
+            query_text: query,
+            max_results: 15,
+          };
+
+          // Add filters
+          if (filters.jurisdiction) {
+            request.jurisdiction = filters.jurisdiction;
+          }
+          if (filters.category && filters.category !== 'all') {
+            request.document_type = filters.category === 'precedent' ? 'Case' : 'Statute';
+          }
+
+          // Check if streaming is enabled
+          const streamingEnabled = process.env.REACT_APP_STREAMING === 'true';
+          
+          if (streamingEnabled) {
+            setIsStreaming(true);
+            
+            const streamingCallbacks: StreamingCallbacks = {
+              onChunk: processStreamingChunk,
+              onComplete: handleStreamingComplete,
+              onError: handleStreamingError
+            };
+
+            await apiClient.searchDocuments(request, streamingCallbacks);
+          } else {
+            // Fallback to non-streaming
+            const response = await apiClient.searchDocuments(request);
+            const transformedResults = response.retrieved_docs.map(transformRetrievedDocToLegalDoc);
+            setResults(transformedResults);
+          }
+          
+        } catch (err) {
+          console.error('Search failed:', err);
+          setError('Search failed. Please try again.');
+          setResults([]);
+          setIsStreaming(false);
+        }
+      };
+
+      searchWithFilters();
     }
-  }, [filters, hasSearched, handleSearch]);
+  }, [filters.category, filters.jurisdiction, hasSearched, query]); // Only include stable dependencies
+
+  // Show streaming modal when streaming starts
+  useEffect(() => {
+    if (isStreaming) {
+      setShowStreamingModal(true);
+    }
+  }, [isStreaming]);
+
+  const handleCloseStreamingModal = () => {
+    // Only allow closing if not currently streaming or if there's an error
+    if (!isStreaming || streamingError) {
+      setShowStreamingModal(false);
+      setStreamingSteps([]);
+      setStreamingError(null);
+    }
+  };
 
   return (
     <div className="flex-1 p-4 md:p-6 pb-32 md:pb-12">
@@ -123,10 +264,10 @@ const SearchContent: React.FC = () => {
               
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || isStreaming}
                 className="flex items-center justify-center px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary-700 focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 whitespace-nowrap"
               >
-                {isLoading ? (
+                {isLoading || isStreaming ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Searching...
@@ -152,8 +293,21 @@ const SearchContent: React.FC = () => {
           />
         )}
 
-        {/* Loading State - Big floating law icon */}
-        {isLoading && hasSearched && (
+        {/* Streaming Progress */}
+        {(isStreaming || streamingSteps.length > 0) && (
+          <StreamingProgressModal
+            isOpen={showStreamingModal}
+            onClose={handleCloseStreamingModal}
+            steps={streamingSteps}
+            isStreaming={isStreaming}
+            error={streamingError || undefined}
+            title="Searching Legal Database"
+            allowClose={!!streamingError} // Only allow closing if there's an error
+          />
+        )}
+
+        {/* Loading State - Big floating law icon (only for non-streaming) */}
+        {isLoading && hasSearched && !isStreaming && (
           <div className="flex flex-col items-center justify-center py-20">
             <Scale className="h-24 w-24 text-primary animate-bounce mb-4" />
             <p className="text-lg text-gray-600 font-medium">Searching legal database...</p>
@@ -161,7 +315,7 @@ const SearchContent: React.FC = () => {
         )}
 
         {/* Error State */}
-        {error && hasSearched && !isLoading && (
+        {error && hasSearched && !isLoading && !isStreaming && (
           <div className="text-center py-12">
             <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md mx-auto">
               <h3 className="text-lg font-medium text-red-800 mb-2">Search Error</h3>
@@ -176,8 +330,8 @@ const SearchContent: React.FC = () => {
           </div>
         )}
 
-        {/* Search Results - show when not loading */}
-        {hasSearched && !isLoading && !error && (
+        {/* Search Results - show when not loading and not streaming */}
+        {hasSearched && !isLoading && !isStreaming && !error && (
           <div className="space-y-4">
             {results.length > 0 ? (
               <>
@@ -212,7 +366,7 @@ const SearchContent: React.FC = () => {
         )}
 
         {/* Pre-search state - show when no search has been performed and not loading */}
-        {!hasSearched && !isLoading && (
+        {!hasSearched && !isLoading && !isStreaming && (
           <div className="text-center py-16">
             <Search className="h-16 w-16 text-gray-300 mx-auto mb-6" />
             <h3 className="text-xl font-medium text-gray-900 mb-3">
@@ -228,4 +382,4 @@ const SearchContent: React.FC = () => {
   );
 };
 
-export default SearchContent; 
+export default SearchContent;

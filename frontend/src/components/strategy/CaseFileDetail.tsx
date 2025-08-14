@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Scale, FileText, Save, Trash2, Eye, Search, PenTool, ScrollText, Gavel, Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { apiClient } from '../../services/api';
+import { apiClient, StreamingCallbacks } from '../../services/api';
 import { ArgumentDraftRequest, ArgumentDraftResponse, SavedArgumentDraft, CaseFileResponse } from '../../types/api';
 import SearchModal from '../shared/SearchModal';
 import DraftArgumentModal from '../shared/DraftArgumentModal';
 import SaveDraftModal from '../shared/SaveDraftModal';
 import ConfirmModal from '../shared/ConfirmModal';
 import SuccessModal from '../shared/SuccessModal';
+import StreamingProgressModal, { StreamingStep } from '../shared/StreamingProgressModal';
 import MootCourt from './MootCourt';
 import MootCourtSessionsList from './MootCourtSessionsList';
 import MootCourtSessionViewer from './MootCourtSessionViewer';
@@ -57,6 +58,13 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const [isAIEditing, setIsAIEditing] = useState(false);
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
 
+  // Streaming state
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingSteps, setStreamingSteps] = useState<StreamingStep[]>([]);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
+  const [showStreamingModal, setShowStreamingModal] = useState(false);
+  const [streamingTitle, setStreamingTitle] = useState<string>('Processing');
+
   const loadCaseFileData = useCallback(async () => {
     try {
       setLoading(true);
@@ -83,6 +91,59 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     loadCaseFileData();
   }, [loadCaseFileData]);
 
+  const processStreamingChunk = useCallback((chunk: any) => {
+    if (chunk.stream_type === 'custom' && chunk.data?.brief_description) {
+      // Use step_id from backend if available, otherwise generate one based on brief_description
+      const stepId = chunk.data.step_id || chunk.data.brief_description.toLowerCase().replace(/\s+/g, '_');
+      
+      const newStep: StreamingStep = {
+        id: stepId,
+        brief_description: chunk.data.brief_description,
+        description: chunk.data.description,
+        status: chunk.data.status === 'in_progress' ? 'in_progress' : 
+                chunk.data.status === 'complete' ? 'complete' : 'active',
+        timestamp: new Date()
+      };
+
+      setStreamingSteps(prev => {
+        // Check if this step already exists
+        const existingIndex = prev.findIndex(step => step.id === stepId);
+        
+        if (existingIndex >= 0) {
+          // Update existing step (for completion updates)
+          const updated = [...prev];
+          updated[existingIndex] = { ...updated[existingIndex], ...newStep };
+          return updated;
+        } else {
+          // Add new step
+          return [...prev, newStep];
+        }
+      });
+    }
+  }, []);
+
+  const handleStreamingComplete = useCallback((finalResponse: any) => {
+    // Mark final step as completed
+    setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
+    
+    setDraftedArgument(finalResponse);
+    setShowArgumentDraft(true);
+    setShowDraftModal(false);
+    setIsStreaming(false);
+    setIsDrafting(false);
+  }, []);
+
+  const handleStreamingError = useCallback((errorMessage: string) => {
+    setStreamingError(errorMessage);
+    setStreamingSteps(prev => prev.map(step => ({ 
+      ...step, 
+      status: step.status === 'active' ? 'error' as const : step.status 
+    })));
+    setIsStreaming(false);
+    setIsDrafting(false);
+    alert('Failed to draft argument. Please try again.');
+  }, []);
+
   const handleDraftArgument = async (legalQuestion?: string, additionalInstructions?: string) => {
     if (!caseFile) {
       alert('Case file not found.');
@@ -100,6 +161,9 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     }
 
     setIsDrafting(true);
+    setStreamingError(null);
+    setStreamingSteps([]);
+
     try {
       const request: ArgumentDraftRequest = {
         case_file_id: caseFileId,
@@ -107,16 +171,35 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
         additional_drafting_instructions: additionalInstructions || '',
       };
 
-      const response = await apiClient.draftArgument(request);
-      setDraftedArgument(response);
-      setShowArgumentDraft(true);
-      setShowDraftModal(false); // Close the modal
+      // Check if streaming is enabled
+      const streamingEnabled = process.env.REACT_APP_STREAMING === 'true';
+      
+      if (streamingEnabled) {
+        setIsStreaming(true);
+        setStreamingTitle('Drafting Legal Argument');
+        setShowDraftModal(false);
+        
+        const streamingCallbacks: StreamingCallbacks = {
+          onChunk: processStreamingChunk,
+          onComplete: handleStreamingComplete,
+          onError: handleStreamingError
+        };
+
+        await apiClient.draftArgument(request, streamingCallbacks);
+      } else {
+        // Fallback to non-streaming
+        const response = await apiClient.draftArgument(request);
+        setDraftedArgument(response);
+        setShowArgumentDraft(true);
+        setShowDraftModal(false);
+        setIsDrafting(false);
+      }
       
     } catch (error) {
       console.error('Argument drafting failed:', error);
       alert('Failed to draft argument. Please try again.');
-    } finally {
       setIsDrafting(false);
+      setIsStreaming(false);
     }
   };
 
@@ -159,8 +242,6 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       alert('Failed to load draft. Please try again.');
     }
   };
-
-
 
   const handleViewDocument = async (documentId: string) => {
     try {
@@ -374,29 +455,96 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     if (!editingDraftId) return;
 
     setIsAIEditing(true);
+    setStreamingError(null);
+    setStreamingSteps([]);
+
     try {
-      const response = await apiClient.editDraftWithAI(editingDraftId, editInstructions);
+      // Check if streaming is enabled
+      const streamingEnabled = process.env.REACT_APP_STREAMING === 'true';
       
-      // Reload drafts and update viewing draft if it's the same one
-      await loadCaseFileData();
-      if (viewingDraft && viewingDraft.id === editingDraftId) {
-        const updatedDraft = await apiClient.getDraft(editingDraftId);
-        setViewingDraft(updatedDraft);
+      if (streamingEnabled) {
+        setIsStreaming(true);
+        setStreamingTitle('Editing Draft with AI');
+        setShowAIEditModal(false);
+        
+        const streamingCallbacks: StreamingCallbacks = {
+          onChunk: processStreamingChunk,
+          onComplete: async (finalResponse: any) => {
+            // Mark final step as completed
+            setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
+            
+            // Reload drafts and update viewing draft if it's the same one
+            await loadCaseFileData();
+            if (viewingDraft && viewingDraft.id === editingDraftId) {
+              const updatedDraft = await apiClient.getDraft(editingDraftId);
+              setViewingDraft(updatedDraft);
+            }
+            
+            setEditingDraftId(null);
+            setIsStreaming(false);
+            setIsAIEditing(false);
+            
+            setSuccessDetails({
+              title: 'AI Edit Completed',
+              message: 'Your draft has been successfully edited with AI assistance.'
+            });
+            setShowSuccessModal(true);
+          },
+          onError: (errorMessage: string) => {
+            setStreamingError(errorMessage);
+            setStreamingSteps(prev => prev.map(step => ({ 
+              ...step, 
+              status: step.status === 'active' ? 'error' as const : step.status 
+            })));
+            setIsStreaming(false);
+            setIsAIEditing(false);
+            alert('Failed to edit draft with AI. Please try again.');
+          }
+        };
+
+        await apiClient.editDraftWithAI(editingDraftId, editInstructions, streamingCallbacks);
+      } else {
+        // Fallback to non-streaming
+        await apiClient.editDraftWithAI(editingDraftId, editInstructions);
+        
+        // Reload drafts and update viewing draft if it's the same one
+        await loadCaseFileData();
+        if (viewingDraft && viewingDraft.id === editingDraftId) {
+          const updatedDraft = await apiClient.getDraft(editingDraftId);
+          setViewingDraft(updatedDraft);
+        }
+        
+        setShowAIEditModal(false);
+        setEditingDraftId(null);
+        setIsAIEditing(false);
+        
+        setSuccessDetails({
+          title: 'AI Edit Completed',
+          message: 'Your draft has been successfully edited with AI assistance.'
+        });
+        setShowSuccessModal(true);
       }
-      
-      setShowAIEditModal(false);
-      setEditingDraftId(null);
-      
-      setSuccessDetails({
-        title: 'AI Edit Completed',
-        message: 'Your draft has been successfully edited with AI assistance.'
-      });
-      setShowSuccessModal(true);
     } catch (error) {
       console.error('Failed to edit draft with AI:', error);
       alert('Failed to edit draft with AI. Please try again.');
-    } finally {
       setIsAIEditing(false);
+      setIsStreaming(false);
+    }
+  };
+
+  // Show streaming modal when streaming starts
+  useEffect(() => {
+    if (isStreaming) {
+      setShowStreamingModal(true);
+    }
+  }, [isStreaming]);
+
+  const handleCloseStreamingModal = () => {
+    // Only allow closing if not currently streaming or if there's an error
+    if (!isStreaming || streamingError) {
+      setShowStreamingModal(false);
+      setStreamingSteps([]);
+      setStreamingError(null);
     }
   };
 
@@ -655,6 +803,17 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             onEdit={handleAIEdit}
             isEditing={isAIEditing}
           />
+
+          {/* Streaming Progress Modal */}
+          <StreamingProgressModal
+            isOpen={showStreamingModal}
+            onClose={handleCloseStreamingModal}
+            steps={streamingSteps}
+            isStreaming={isStreaming}
+            error={streamingError || undefined}
+            title={streamingTitle}
+            allowClose={!!streamingError}
+          />
         </div>
       );
     }
@@ -883,74 +1042,16 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
           isEditing={isAIEditing}
         />
 
-        {/* Edit Case File Modal */}
-        {showEditModal && (
-          <div className="fixed inset-0 z-50 overflow-y-auto">
-            {/* Backdrop */}
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-              onClick={() => setShowEditModal(false)}
-            />
-            
-            {/* Modal */}
-            <div className="flex min-h-full items-center justify-center p-4">
-              <div className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl">
-                <div className="p-6 border-b">
-                  <h3 className="text-lg font-semibold text-gray-900">Edit Case File</h3>
-                </div>
-                <div className="p-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                      <input
-                        type="text"
-                        value={editForm.title}
-                        onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                        className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                        placeholder="Enter case file title"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                      <textarea
-                        value={editForm.description}
-                        onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                        className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                        rows={3}
-                        placeholder="Enter case file description"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Facts</label>
-                      <textarea
-                        value={editForm.user_facts}
-                        onChange={(e) => setEditForm({ ...editForm, user_facts: e.target.value })}
-                        className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
-                        rows={6}
-                        placeholder="Enter case facts"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="p-6 border-t flex justify-end gap-4">
-                  <button
-                    onClick={() => setShowEditModal(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleUpdateCaseFile}
-                    className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors"
-                    disabled={isUpdating}
-                  >
-                    {isUpdating ? 'Updating...' : 'Update Case File'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Streaming Progress Modal */}
+        <StreamingProgressModal
+          isOpen={showStreamingModal}
+          onClose={handleCloseStreamingModal}
+          steps={streamingSteps}
+          isStreaming={isStreaming}
+          error={streamingError || undefined}
+          title={streamingTitle}
+          allowClose={!!streamingError}
+        />
       </>
     );
   }
@@ -1021,6 +1122,17 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
             <p className="text-gray-700 whitespace-pre-line">{caseFile.user_facts}</p>
           </div>
         )}
+
+        {/* Streaming Progress for Argument Drafting */}
+        <StreamingProgressModal
+          isOpen={showStreamingModal}
+          onClose={handleCloseStreamingModal}
+          steps={streamingSteps}
+          isStreaming={isStreaming}
+          error={streamingError || undefined}
+          title={streamingTitle}
+          allowClose={!!streamingError}
+        />
 
         <div className="w-full">
           <div className="space-y-6">
@@ -1225,6 +1337,17 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
         currentContent={editedDraftContent}
         onEdit={handleAIEdit}
         isEditing={isAIEditing}
+      />
+
+      {/* Streaming Progress Modal */}
+      <StreamingProgressModal
+        isOpen={showStreamingModal}
+        onClose={handleCloseStreamingModal}
+        steps={streamingSteps}
+        isStreaming={isStreaming}
+        error={streamingError || undefined}
+        title={streamingTitle}
+        allowClose={!!streamingError}
       />
 
       {/* Edit Case File Modal */}

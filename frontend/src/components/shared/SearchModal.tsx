@@ -118,10 +118,41 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose, caseFileId, 
 
   // Re-search when filters change (only if already searched) - NO LOADING
   useEffect(() => {
-    if (hasSearched) {
-      handleSearch(query, false); // No loading for filter changes
+    if (hasSearched && query.trim()) {
+      // Create a local version to avoid dependency issues
+      const searchWithFilters = async () => {
+        setError(null);
+
+        try {
+          const request: ResearchQueryRequest = {
+            query_text: query,
+            max_results: 15,
+          };
+
+          // Add filters
+          if (filters.jurisdiction) {
+            request.jurisdiction = filters.jurisdiction;
+          }
+          if (filters.category && filters.category !== 'all') {
+            request.document_type = filters.category === 'precedent' ? 'Case' : 'Statute';
+          }
+
+          const response = await apiClient.searchDocuments(request);
+          
+          // Transform API response to UI format
+          const transformedResults = response.retrieved_docs.map(transformRetrievedDocToLegalDoc);
+          setResults(transformedResults);
+          
+        } catch (err) {
+          console.error('Search failed:', err);
+          setError('Search failed. Please try again.');
+          setResults([]);
+        }
+      };
+
+      searchWithFilters();
     }
-  }, [filters, hasSearched, handleSearch]);
+  }, [filters.category, filters.jurisdiction, hasSearched, query]); // Only include stable dependencies
 
   if (!isOpen) return null;
 

@@ -1,5 +1,21 @@
 // Base API configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const STREAMING_ENABLED = process.env.REACT_APP_STREAMING === 'true';
+
+// Streaming types
+export interface StreamChunk {
+  stream_type?: string;
+  data: any;
+  streaming_complete?: boolean;
+  final_response?: any;
+  error?: string;
+}
+
+export interface StreamingCallbacks {
+  onChunk?: (chunk: StreamChunk) => void;
+  onComplete?: (finalResponse: any) => void;
+  onError?: (error: string) => void;
+}
 
 // HTTP client with error handling
 class ApiClient {
@@ -37,8 +53,82 @@ class ApiClient {
     }
   }
 
+  // Streaming method for Server-Sent Events
+  private async streamRequest(
+    endpoint: string,
+    requestBody: any,
+    callbacks: StreamingCallbacks
+  ): Promise<void> {
+    const url = `${this.baseUrl}${endpoint}`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...requestBody, stream: true }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Response body is not readable');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Process complete lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.slice(6); // Remove 'data: ' prefix
+              if (jsonStr.trim()) {
+                const chunk: StreamChunk = JSON.parse(jsonStr);
+                
+                if (chunk.streaming_complete) {
+                  if (chunk.error) {
+                    callbacks.onError?.(chunk.error);
+                  } else if (chunk.final_response) {
+                    callbacks.onComplete?.(chunk.final_response);
+                  }
+                  return;
+                }
+                
+                callbacks.onChunk?.(chunk);
+              }
+            } catch (parseError) {
+              console.warn('Failed to parse SSE chunk:', parseError);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Streaming request failed:', error);
+      callbacks.onError?.(error instanceof Error ? error.message : 'Unknown streaming error');
+    }
+  }
+
   // Research methods
-  async searchDocuments(query: any): Promise<any> {
+  async searchDocuments(query: any, callbacks?: StreamingCallbacks): Promise<any> {
+    if (STREAMING_ENABLED && callbacks) {
+      return this.streamRequest('/api/v1/research/query', query, callbacks);
+    }
+    
     return this.request('/api/v1/research/query', {
       method: 'POST',
       body: JSON.stringify(query),
@@ -54,7 +144,11 @@ class ApiClient {
   }
 
   // Drafting methods
-  async draftArgument(request: any): Promise<any> {
+  async draftArgument(request: any, callbacks?: StreamingCallbacks): Promise<any> {
+    if (STREAMING_ENABLED && callbacks) {
+      return this.streamRequest('/api/v1/generation/draft-argument', request, callbacks);
+    }
+    
     return this.request('/api/v1/generation/draft-argument', {
       method: 'POST',
       body: JSON.stringify(request),
@@ -129,13 +223,19 @@ class ApiClient {
     });
   }
 
-  async editDraftWithAI(draftId: number, editInstructions: string): Promise<any> {
+  async editDraftWithAI(draftId: number, editInstructions: string, callbacks?: StreamingCallbacks): Promise<any> {
+    const requestBody = {
+      draft_id: draftId,
+      edit_instructions: editInstructions
+    };
+
+    if (STREAMING_ENABLED && callbacks) {
+      return this.streamRequest('/api/v1/drafts/ai-edit', requestBody, callbacks);
+    }
+    
     return this.request('/api/v1/drafts/ai-edit', {
       method: 'POST',
-      body: JSON.stringify({
-        draft_id: draftId,
-        edit_instructions: editInstructions
-      }),
+      body: JSON.stringify(requestBody),
     });
   }
 
@@ -154,13 +254,19 @@ class ApiClient {
   }
 
   // Moot Court methods
-  async generateCounterArguments(caseFileId: number, draftId?: number): Promise<any> {
+  async generateCounterArguments(caseFileId: number, draftId?: number, callbacks?: StreamingCallbacks): Promise<any> {
+    const requestBody = {
+      case_file_id: caseFileId,
+      draft_id: draftId
+    };
+
+    if (STREAMING_ENABLED && callbacks) {
+      return this.streamRequest('/api/v1/moot-court/generate-counterarguments', requestBody, callbacks);
+    }
+    
     return this.request('/api/v1/moot-court/generate-counterarguments', {
       method: 'POST',
-      body: JSON.stringify({
-        case_file_id: caseFileId,
-        draft_id: draftId
-      }),
+      body: JSON.stringify(requestBody),
     });
   }
 
