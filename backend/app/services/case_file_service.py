@@ -32,6 +32,7 @@ class CaseFileService:
         title: str,
         description: Optional[str] = None,
         user_facts: Optional[str] = None,
+        party_represented: Optional[str] = None,
     ) -> int:
         """Create a new case file and return its ID."""
         with get_db_context() as db:
@@ -39,6 +40,7 @@ class CaseFileService:
                 title=title,
                 description=description,
                 user_facts=user_facts,
+                party_represented=party_represented,
             )
             db.add(case_file)
             db.flush()  # To get the ID
@@ -99,6 +101,7 @@ class CaseFileService:
                 "title": case_file.title,
                 "description": case_file.description,
                 "user_facts": case_file.user_facts,
+                "party_represented": case_file.party_represented,
                 "created_at": case_file.created_at,
                 "updated_at": case_file.updated_at,
                 "documents": [
@@ -133,6 +136,7 @@ class CaseFileService:
                     "id": cf.id,
                     "title": cf.title,
                     "description": cf.description,
+                    "party_represented": cf.party_represented,
                     "created_at": cf.created_at,
                     "updated_at": cf.updated_at,
                     "document_count": len(cf.documents),
@@ -147,6 +151,7 @@ class CaseFileService:
         title: Optional[str] = None,
         description: Optional[str] = None,
         user_facts: Optional[str] = None,
+        party_represented: Optional[str] = None,
     ) -> bool:
         """Update case file details."""
         with get_db_context() as db:
@@ -160,6 +165,8 @@ class CaseFileService:
                 case_file.description = description
             if user_facts is not None:
                 case_file.user_facts = user_facts
+            if party_represented is not None:
+                case_file.party_represented = party_represented
 
             return True
 

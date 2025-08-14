@@ -149,6 +149,7 @@ class DraftingState(TypedDict):
     # Input
     user_facts: str
     case_file: Dict[str, Any]
+    party_represented: NotRequired[str]  # Which party the user represents (e.g., "Plaintiff", "Defendant")
     legal_question: NotRequired[str]
     
     # Editing support
@@ -186,6 +187,7 @@ class CounterArgumentState(TypedDict):
     case_file_id: int
     draft_id: NotRequired[int]
     user_facts: str
+    party_represented: NotRequired[str]  # Which party the user represents (e.g., "Plaintiff", "Defendant")
     key_arguments: List[Dict[str, Any]]
     case_file_documents: List[Dict[str, Any]]
     

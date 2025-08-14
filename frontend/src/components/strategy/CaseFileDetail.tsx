@@ -47,7 +47,8 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const [editForm, setEditForm] = useState({
     title: '',
     description: '',
-    user_facts: ''
+    user_facts: '',
+    party_represented: ''
   });
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -369,7 +370,8 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     setEditForm({
       title: caseFile?.title || '',
       description: caseFile?.description || '',
-      user_facts: caseFile?.user_facts || ''
+      user_facts: caseFile?.user_facts || '',
+      party_represented: caseFile?.party_represented || ''
     });
     setShowEditModal(true);
   };
@@ -382,7 +384,8 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       await apiClient.updateCaseFile(caseFileId, {
         title: editForm.title,
         description: editForm.description,
-        user_facts: editForm.user_facts
+        user_facts: editForm.user_facts,
+        party_represented: editForm.party_represented
       });
       
       // Reload case file data
@@ -1394,6 +1397,16 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                       className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
                       rows={6}
                       placeholder="Enter case facts"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Party Represented</label>
+                    <input
+                      type="text"
+                      value={editForm.party_represented}
+                      onChange={(e) => setEditForm({ ...editForm, party_represented: e.target.value })}
+                      className="block w-full p-3 border rounded-lg focus:ring focus:ring-primary focus:outline-none"
+                      placeholder="Party you represent"
                     />
                   </div>
                 </div>

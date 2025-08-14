@@ -106,12 +106,14 @@ export interface CreateCaseFileRequest {
   title: string;
   description?: string;
   user_facts?: string;  // Only case facts - no legal question or instructions
+  party_represented?: string;  // Which party the user represents
 }
 
 export interface UpdateCaseFileRequest {
   title?: string;
   description?: string;
   user_facts?: string;  // Only case facts - no legal question or instructions
+  party_represented?: string;  // Which party the user represents
 }
 
 export interface CaseFileResponse {
@@ -119,6 +121,7 @@ export interface CaseFileResponse {
   title: string;
   description?: string;
   user_facts?: string;  // Only case facts
+  party_represented?: string;  // Which party the user represents
   created_at: string;
   updated_at?: string;
   documents: any[];
@@ -129,6 +132,7 @@ export interface CaseFileListItem {
   id: number;
   title: string;
   description?: string;
+  party_represented?: string;  // Which party the user represents
   created_at: string;
   updated_at?: string;
   document_count: number;

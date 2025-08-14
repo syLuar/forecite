@@ -203,6 +203,7 @@ class CreateCaseFileRequest(BaseModel):
     title: str = Field(..., description="Title for the case file")
     description: Optional[str] = Field(None, description="Optional description")
     user_facts: Optional[str] = Field(None, description="Client's fact pattern")
+    party_represented: Optional[str] = Field(None, description="Which party the user represents (e.g., 'Plaintiff', 'Defendant', 'Petitioner', 'Respondent', 'Appellant', 'Appellee')")
 
 
 class UpdateCaseFileRequest(BaseModel):
@@ -211,6 +212,7 @@ class UpdateCaseFileRequest(BaseModel):
     title: Optional[str] = Field(None, description="Updated title")
     description: Optional[str] = Field(None, description="Updated description")
     user_facts: Optional[str] = Field(None, description="Updated fact pattern")
+    party_represented: Optional[str] = Field(None, description="Updated party representation")
 
 
 class CaseFileResponse(BaseModel):
@@ -220,6 +222,7 @@ class CaseFileResponse(BaseModel):
     title: str
     description: Optional[str] = None
     user_facts: Optional[str] = None
+    party_represented: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     documents: List[Dict[str, Any]] = []
@@ -232,6 +235,7 @@ class CaseFileListItem(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    party_represented: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     document_count: int

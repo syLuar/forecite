@@ -100,22 +100,29 @@ async def fact_analyzer_node(state: DraftingState) -> DraftingState:
     logger.info("Executing FactAnalyzerNode")
 
     user_facts = state["user_facts"]
+    party_represented = state.get("party_represented", "")
     legal_question = state.get("legal_question", "")
 
     # Create structured LLM for focused task
     structured_llm = llm.with_structured_output(LegalIssueAnalysisOutput)
 
-    system_prompt = """You are a legal issue identification specialist. Your ONLY job is to analyze facts and identify legal issues.
+    party_context = ""
+    if party_represented:
+        party_context = f"\n\nIMPORTANT: You are representing the {party_represented}. Frame your analysis from the {party_represented}'s perspective and identify issues that would be relevant to advancing the {party_represented}'s position."
+
+    system_prompt = f"""You are a legal issue identification specialist. Your ONLY job is to analyze facts and identify legal issues.
 
 1. Identify the PRIMARY legal issue (most important)
 2. Identify up to 3 secondary issues (supporting or related)
 3. Determine the applicable area of law
 
-Be focused and specific. Do NOT develop strategy or suggest arguments."""
+Be focused and specific. Do NOT develop strategy or suggest arguments.{party_context}"""
 
     prompt_content = f"Facts: {user_facts}"
     if legal_question:
         prompt_content += f"\n\nSpecific Legal Question: {legal_question}"
+    if party_represented:
+        prompt_content += f"\n\nParty Represented: {party_represented}"
 
     prompt_template = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
@@ -173,6 +180,7 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
     legal_issue_analysis = state.get("legal_issue_analysis", {})
     case_file = state.get("case_file", {})
     user_facts = state["user_facts"]
+    party_represented = state.get("party_represented", "")
 
     # Check if this is a revision
     strategy_assessment = state.get("strategy_assessment", {})
@@ -185,6 +193,10 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
     if is_revision:
         revision_context = f"\n\nPrevious strategy was rejected: {strategy_assessment.get('feedback', '')}\nAddress these concerns in the revised strategy."
 
+    party_context = ""
+    if party_represented:
+        party_context = f"\n\nCRITICAL: You are representing the {party_represented}. Develop a strategy that advances the {party_represented}'s interests and position. Frame all legal theories and thesis statements from the {party_represented}'s perspective."
+
     system_prompt = f"""You are a legal strategy specialist. Your ONLY job is to develop the core strategic approach.
 
 Based on the legal issue analysis, develop:
@@ -194,18 +206,19 @@ Based on the legal issue analysis, develop:
 
 Primary issue: {legal_issue_analysis.get('primary_issue', 'Unknown')}
 Applicable law: {legal_issue_analysis.get('applicable_law', 'Unknown')}
+{party_context}
 {revision_context}
 
 Focus on the big picture strategy, not specific arguments."""
 
+    prompt_content = f"Facts: {user_facts}"
+    if party_represented:
+        prompt_content += f"\n\nParty Represented: {party_represented}"
+    prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+
     prompt_template = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
-        HumanMessage(content=f"""
-Facts: {user_facts}
-
-Available precedents: {json.dumps(case_file, indent=2, default=str)}
-
-Develop a core legal strategy for this case.""")
+        HumanMessage(content=f"{prompt_content}\n\nDevelop a core legal strategy for this case.")
     ])
 
     try:
@@ -232,8 +245,9 @@ Develop a core legal strategy for this case.""")
         logger.error(f"Error in strategy development: {e}")
         # Fallback strategy
         primary_issue = legal_issue_analysis.get("primary_issue", "Legal issue")
+        party_text = f" for the {party_represented}" if party_represented else ""
         state["core_strategy"] = {
-            "main_thesis": f"Client should prevail on {primary_issue}",
+            "main_thesis": f"Client should prevail on {primary_issue}{party_text}",
             "legal_theory": "Applicable legal standards support client's position",
             "strength_rating": 0.6
         }
@@ -261,9 +275,14 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
     legal_issue_analysis = state.get("legal_issue_analysis", {})
     case_file = state.get("case_file", {})
     user_facts = state["user_facts"]
+    party_represented = state.get("party_represented", "")
 
     # Create structured LLM for argument generation
     structured_llm = llm.with_structured_output(SingleArgumentOutput)
+
+    party_context = ""
+    if party_represented:
+        party_context = f"\n\nCRITICAL: You are representing the {party_represented}. Each argument must advance the {party_represented}'s position and be framed from the {party_represented}'s perspective. Consider how this argument helps the {party_represented} win their case."
 
     # Generate 3 arguments iteratively
     arguments = []
@@ -272,6 +291,7 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
 
 Core strategy: {core_strategy.get('main_thesis', '')}
 Legal theory: {core_strategy.get('legal_theory', '')}
+{party_context}
 
 Create argument #{i+1} that supports this strategy. Each argument should:
 1. Make a specific legal point
@@ -280,14 +300,14 @@ Create argument #{i+1} that supports this strategy. Each argument should:
 
 Be specific and focused on this ONE argument only."""
 
+        prompt_content = f"Facts: {user_facts}"
+        if party_represented:
+            prompt_content += f"\n\nParty Represented: {party_represented}"
+        prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+
         prompt_template = ChatPromptTemplate.from_messages([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"""
-Facts: {user_facts}
-
-Available precedents: {json.dumps(case_file, indent=2, default=str)}
-
-Create a specific legal argument that supports the strategy.""")
+            HumanMessage(content=f"{prompt_content}\n\nCreate a specific legal argument that supports the strategy.")
         ])
 
         try:
@@ -304,8 +324,9 @@ Create a specific legal argument that supports the strategy.""")
         except Exception as e:
             logger.error(f"Error generating argument {i+1}: {e}")
             # Fallback argument
+            party_text = f" for the {party_represented}" if party_represented else ""
             arguments.append({
-                "argument": f"Legal principle {i+1} supports client's position",
+                "argument": f"Legal principle {i+1} supports client's position{party_text}",
                 "authority": "Applicable case law",
                 "reasoning": "Facts demonstrate this principle applies"
             })

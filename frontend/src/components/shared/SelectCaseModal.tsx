@@ -26,7 +26,8 @@ const SelectCaseModal: React.FC<SelectCaseModalProps> = ({
   const [createForm, setCreateForm] = useState<CreateCaseFileRequest>({
     title: '',
     description: '',
-    user_facts: ''
+    user_facts: '',
+    party_represented: ''
   });
   const [isCreating, setIsCreating] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -98,7 +99,7 @@ const SelectCaseModal: React.FC<SelectCaseModalProps> = ({
       }
       
       onClose();
-      setCreateForm({ title: '', description: '', user_facts: '' });
+      setCreateForm({ title: '', description: '', user_facts: '', party_represented: '' });
       setShowCreateForm(false);
       
     } catch (error) {
@@ -210,6 +211,15 @@ const SelectCaseModal: React.FC<SelectCaseModalProps> = ({
                   onChange={(e) => setCreateForm({ ...createForm, user_facts: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                   rows={3}
+                />
+              </div>
+              <div>
+                <input
+                  type="text"
+                  placeholder="Party you represent"
+                  value={createForm.party_represented}
+                  onChange={(e) => setCreateForm({ ...createForm, party_represented: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
               <div className="flex gap-2">

@@ -265,6 +265,7 @@ async def draft_argument(request: ArgumentDraftRequest):
         initial_state: DraftingState = {
             "user_facts": user_facts,
             "case_file": case_file_for_graph,
+            "party_represented": case_file_data.get('party_represented'),
         }
 
         # Add optional legal question and additional instructions
@@ -380,6 +381,7 @@ async def create_case_file(request: CreateCaseFileRequest):
             title=request.title,
             description=request.description,
             user_facts=request.user_facts,
+            party_represented=request.party_represented,
         )
 
         logger.info(f"Created new case file with ID: {case_file_id}")
@@ -441,6 +443,7 @@ async def update_case_file(case_file_id: int, request: UpdateCaseFileRequest):
             title=request.title,
             description=request.description,
             user_facts=request.user_facts,
+            party_represented=request.party_represented,
         )
 
         if not success:
@@ -939,6 +942,7 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
         initial_state: CounterArgumentState = {
             "case_file_id": request.case_file_id,
             "user_facts": user_facts,
+            "party_represented": case_file_data.get('party_represented'),
             "key_arguments": key_arguments,
             "case_file_documents": case_file_documents,
         }

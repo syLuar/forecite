@@ -18,7 +18,8 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
   const [createForm, setCreateForm] = useState<CreateCaseFileRequest>({
     title: '',
     description: '',
-    user_facts: ''
+    user_facts: '',
+    party_represented: ''
   });
 
   useEffect(() => {
@@ -43,7 +44,7 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
       const result = await apiClient.createCaseFile(createForm);
       await loadCaseFiles();
       onSelectCaseFile(result.case_file_id);
-      setCreateForm({ title: '', description: '', user_facts: '' });
+      setCreateForm({ title: '', description: '', user_facts: '', party_represented: '' });
       setShowCreateForm(false);
     } catch (error) {
       console.error('Failed to create case file:', error);
@@ -130,6 +131,15 @@ const CaseFileNavigation: React.FC<CaseFileNavigationProps> = ({
                 onChange={(e) => setCreateForm({ ...createForm, user_facts: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
                 rows={3}
+              />
+            </div>
+            <div>
+              <input
+                type="text"
+                placeholder="Party you represent"
+                value={createForm.party_represented}
+                onChange={(e) => setCreateForm({ ...createForm, party_represented: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div className="flex gap-2">

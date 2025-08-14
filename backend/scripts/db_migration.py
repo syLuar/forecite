@@ -114,10 +114,28 @@ def create_moot_court_sessions_if_missing(conn: sqlite3.Connection):
     print('[MIGRATION] Table moot_court_sessions created.')
 
 
+def add_party_represented_if_missing(conn: sqlite3.Connection):
+    if not table_exists(conn, 'case_files'):
+        print('[MIGRATION] case_files table not found; skipping add of party_represented.')
+        return
+    if column_exists(conn, 'case_files', 'party_represented'):
+        print('[MIGRATION] Column party_represented already exists.')
+        return
+
+    print('[MIGRATION] Adding column party_represented to case_files...')
+    try:
+        conn.execute('ALTER TABLE case_files ADD COLUMN party_represented VARCHAR(100)')
+        print('[MIGRATION] Column party_represented added successfully.')
+    except sqlite3.OperationalError as e:
+        print(f'[MIGRATION] Failed to add party_represented column: {e}')
+        raise
+
+
 def migration_already_applied(conn: sqlite3.Connection) -> bool:
     no_legal_question = table_exists(conn, 'case_files') and not column_exists(conn, 'case_files', 'legal_question')
     moot_exists = table_exists(conn, 'moot_court_sessions')
-    return no_legal_question and moot_exists
+    party_exists = table_exists(conn, 'case_files') and column_exists(conn, 'case_files', 'party_represented')
+    return no_legal_question and moot_exists and party_exists
 
 
 def apply_migration():
@@ -133,6 +151,7 @@ def apply_migration():
         print('[MIGRATION] Starting database schema migration...')
         drop_legal_question_if_present(conn)
         create_moot_court_sessions_if_missing(conn)
+        add_party_represented_if_missing(conn)
         conn.commit()
         print('[MIGRATION] Migration complete.')
 

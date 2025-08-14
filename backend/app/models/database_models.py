@@ -22,6 +22,7 @@ class CaseFile(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     user_facts = Column(Text, nullable=True)  # Static case facts - now belongs to case file
+    party_represented = Column(String(100), nullable=True)  # Which party the user represents (e.g., "Plaintiff", "Defendant", "Petitioner", "Respondent", "Appellant", "Appellee")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

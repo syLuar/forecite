@@ -176,11 +176,18 @@ async def vulnerability_analysis_node(state: CounterArgumentState) -> CounterArg
     
     key_arguments = state["key_arguments"]
     retrieved_docs = state.get("retrieved_docs", [])
+    party_represented = state.get("party_represented", "")
     
     # Create structured LLM for vulnerability assessment
     structured_llm = llm.with_structured_output(VulnerabilityAssessmentOutput)
     
     vulnerabilities = []
+    
+    party_context = ""
+    if party_represented:
+        # Determine opposing party perspective for vulnerability analysis
+        opposing_party = get_opposing_party(party_represented)
+        party_context = f"\n\nCRITICAL: You are analyzing arguments made by the {party_represented}, but you must think like the {opposing_party} to identify vulnerabilities. What weaknesses would the {opposing_party} exploit? How would the {opposing_party} challenge these arguments?"
     
     # Analyze each argument for vulnerabilities
     for i, argument in enumerate(key_arguments[:3]):  # Limit to 3 arguments
@@ -200,6 +207,7 @@ CRITICAL REQUIREMENTS:
 - Be specific about the legal weakness, not general
 - Reference specific legal principles or precedents when possible
 - Explain WHY this is a vulnerability, not just what it is
+{party_context}
 
 Argument: {arg_text}
 Authority: {authority}
@@ -262,6 +270,19 @@ Identify ONE specific vulnerability in this argument.""")
     })
     
     return state
+
+
+def get_opposing_party(party_represented: str) -> str:
+    """Helper function to determine the opposing party."""
+    party_mapping = {
+        "Plaintiff": "Defendant",
+        "Defendant": "Plaintiff", 
+        "Petitioner": "Respondent",
+        "Respondent": "Petitioner",
+        "Appellant": "Appellee",
+        "Appellee": "Appellant"
+    }
+    return party_mapping.get(party_represented, "opposing party")
 
 
 async def challenge_identifier_node(state: CounterArgumentState) -> CounterArgumentState:
@@ -374,11 +395,17 @@ async def counterargument_developer_node(state: CounterArgumentState) -> Counter
     retrieved_docs = state.get("retrieved_docs", [])
     key_arguments = state["key_arguments"]
     user_facts = state["user_facts"]
+    party_represented = state.get("party_represented", "")
     
     # Create structured LLM for counterargument development
     structured_llm = llm.with_structured_output(SingleCounterArgumentOutput)
     
     counterarguments = []
+    
+    party_context = ""
+    if party_represented:
+        opposing_party = get_opposing_party(party_represented)
+        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now arguing as the {opposing_party} against the {party_represented}'s arguments. Frame your counterarguments from the {opposing_party}'s perspective and interests. What would the {opposing_party} argue to defeat the {party_represented}'s position?"
     
     # Develop each seed into a full counterargument
     for i, seed in enumerate(seeds):
@@ -398,6 +425,7 @@ REQUIREMENTS FOR QUALITY OUTPUT:
 - Reference concrete legal authorities (cases, statutes, regulations)
 - Explain the factual basis thoroughly
 - Provide substantive analysis, not general statements
+{party_context}
 
 Challenge type: {challenge_type}
 Challenge description: {description}
@@ -412,20 +440,20 @@ Create a counterargument that includes:
 
 Write as if you are an experienced opposing counsel making this argument in court."""
 
+        prompt_content = f"Case facts: {user_facts}"
+        if party_represented:
+            opposing_party = get_opposing_party(party_represented)
+            prompt_content += f"\n\nParty Context: You are arguing for the {opposing_party} against the {party_represented}"
+        
         retrieved_context = "\n".join([
             f"- {doc.get('document_citation', 'Unknown')}: {doc.get('text', '')[:150]}"
             for doc in retrieved_docs[:5]
         ])
+        prompt_content += f"\n\nAvailable research:\n{retrieved_context}"
 
         prompt_template = ChatPromptTemplate.from_messages([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"""
-Case facts: {user_facts}
-
-Available research:
-{retrieved_context}
-
-Develop a detailed counterargument based on the challenge description.""")
+            HumanMessage(content=f"{prompt_content}\n\nDevelop a detailed counterargument based on the challenge description.")
         ])
 
         try:
@@ -489,11 +517,17 @@ async def rebuttal_generator_node(state: CounterArgumentState) -> CounterArgumen
     
     counterarguments = state.get("generated_counterarguments", [])
     key_arguments = state["key_arguments"]
+    party_represented = state.get("party_represented", "")
     
     # Create structured LLM for rebuttal generation
     structured_llm = llm.with_structured_output(SingleRebuttalOutput)
     
     all_rebuttals = []
+    
+    party_context = ""
+    if party_represented:
+        opposing_party = get_opposing_party(party_represented)
+        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now back to representing the {party_represented}. The counterarguments were made by the {opposing_party}. Generate rebuttals that defend the {party_represented}'s position and refute the {opposing_party}'s challenges. Frame your rebuttals from the {party_represented}'s perspective and interests."
     
     # Generate rebuttals for each counterargument
     for i, ca in enumerate(counterarguments):
@@ -514,6 +548,7 @@ REQUIREMENTS FOR QUALITY REBUTTAL:
 - Reference concrete authorities (cases, statutes, principles)
 - Explain WHY the counterargument fails, not just that it does
 - Provide substantive legal analysis, not general statements
+{party_context}
 
 Counterargument: {ca_argument}
 Original argument being defended: {original_text}
@@ -526,9 +561,14 @@ Create a rebuttal that includes:
 
 Write as if you are defending your position in court against this challenge."""
 
+        prompt_content = "Generate a rebuttal to counter this challenge."
+        if party_represented:
+            opposing_party = get_opposing_party(party_represented)
+            prompt_content += f"\n\nParty Context: You are defending the {party_represented}'s position against the {opposing_party}'s counterargument."
+
         prompt_template = ChatPromptTemplate.from_messages([
             SystemMessage(content=system_prompt),
-            HumanMessage(content="Generate a rebuttal to counter this challenge.")
+            HumanMessage(content=prompt_content)
         ])
 
         try:
@@ -614,4 +654,4 @@ def create_counterargument_graph() -> StateGraph:
 
 
 # Export the compiled graph
-counterargument_graph = create_counterargument_graph() 
+counterargument_graph = create_counterargument_graph()
