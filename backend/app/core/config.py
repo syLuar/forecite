@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     llm_config_path: str = Field("./llm_config.yaml", env="LLM_CONFIG_PATH")
     llm_config: Optional[dict] = None
 
-    # Google Gemini Configuration
-    google_api_key: str = Field(..., env="GOOGLE_API_KEY")
+    # API Keys
+    google_api_key: Optional[str] = Field(..., env="GOOGLE_API_KEY")
+    openai_api_key: Optional[str] = Field(..., env="OPENAI_API_KEY")
 
     # LangSmith Configuration
     langsmith_tracing: bool = Field(False, env="LANGSMITH_TRACING")

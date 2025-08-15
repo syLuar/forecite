@@ -1,31 +1,38 @@
 embeddings:
   model: "gemini-embedding-001"
   dimension: 3072
+  model_provider: "google"
 
 ingestion:
   entity_extraction: 
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
+    model_provider: "google"
   summary_generation: 
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
+    model_provider: "google"
   metadata_extraction: 
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
+    model_provider: "google"
 
 main:
   drafting: 
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
+    model_provider: "google"
   research: 
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
+    model_provider: "google"
   counterargument: 
-    model: "gemini-2.5-flash-lite"
+    model: "gpt-5-mini"
     temperature: 0.2
     thinking_budget: 0
+    model_provider: "openai"

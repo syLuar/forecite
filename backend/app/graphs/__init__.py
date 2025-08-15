@@ -2,7 +2,7 @@
 LangGraph workflow definitions for the Legal Research Assistant.
 
 This package contains the agent team definitions and state management
-for research and drafting workflows. Now using v2 improved implementations.
+for research and drafting workflows. Now using v3 improved implementations.
 """
 
 from .v2.research_graph import research_graph

@@ -10,7 +10,6 @@ from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
 from langgraph.config import get_stream_writer
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -20,6 +19,7 @@ import uuid
 import os
 
 from app.core.config import settings
+from app.core.llm import create_llm
 from .state import (
     ResearchState, 
     QueryAnalysis, 
@@ -39,9 +39,9 @@ from ...tools.neo4j_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize LLM
-research_attrs = settings.llm_config.get("main", {}).get("research", {})
-llm = ChatGoogleGenerativeAI(google_api_key=settings.google_api_key, **research_attrs)
+# Initialize LLM using the config for research
+task_config = settings.llm_config.get("main", {}).get("research", {})
+llm = create_llm(task_config)
 
 
 # Simplified Pydantic models for structured output
@@ -80,6 +80,21 @@ class RefinementSuggestionOutput(BaseModel):
     new_strategy: str = Field(description="Improved search strategy")
     reasoning: str = Field(description="Explanation of improvements")
 
+
+class QueryPreparationOutput(BaseModel):
+    """Prepared search query and parameters."""
+    search_query: str = Field(description="Optimized search query text")
+    search_parameters_json: str = Field(description="Search parameters and filters (JSON-formatted)")
+    execution_strategy: str = Field(description="How to execute the search")
+
+    @property
+    def search_parameters(self) -> Dict[str, Any]:
+        """
+        Convert JSON string to dictionary for easier access.
+        """
+        if isinstance(self.search_parameters_json, str):
+            return json.loads(self.search_parameters_json)
+        return self.search_parameters_json
 
 # Decomposed node functions
 async def query_analyzer_node(state: ResearchState) -> ResearchState:
@@ -316,21 +331,21 @@ Build appropriate search filters.""")
     return state
 
 
-async def retrieval_node(state: ResearchState) -> ResearchState:
+async def query_preparation_node(state: ResearchState) -> ResearchState:
     """
-    Execute the search using the selected strategy and filters.
+    Prepare the search query and parameters using LLM analysis.
     
-    This node focuses only on retrieval execution.
+    This focused node only prepares the query - no actual search execution.
     """
-    step_id = f"retrieval_{uuid.uuid4().hex[:8]}"
+    step_id = f"query_preparation_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
     writer({
         "step_id": step_id,
         "status": "in_progress",
-        "brief_description": "Retrieving legal documents",
-        "description": "Executing the search strategy to retrieve relevant legal documents and precedents."
+        "brief_description": "Preparing search query",
+        "description": "Analyzing strategy and filters to prepare optimized search query and parameters."
     })
-    logger.info("Executing RetrievalNode")
+    logger.info("Executing QueryPreparationNode")
 
     # Get strategy and filters
     search_strategy = state.get("search_strategy", {})
@@ -340,14 +355,81 @@ async def retrieval_node(state: ResearchState) -> ResearchState:
     strategy = search_strategy.get("strategy", "semantic")
     key_concepts = query_analysis.get("key_concepts", [])
     
-    # Build search parameters
-    search_kwargs = {"limit": 15, "min_score": 0.6}
+    # Create structured LLM for query preparation
+    structured_llm = llm.with_structured_output(QueryPreparationOutput)
     
-    # Apply filters
-    # if search_filters.get("jurisdiction"):
-    #     search_kwargs["jurisdiction"] = search_filters["jurisdiction"]
-    # if search_filters.get("document_type"):
-    #     search_kwargs["document_type"] = search_filters["document_type"]
+    system_prompt = f"""You are a legal search query optimizer. Your ONLY job is to prepare the optimal search query and parameters.
+
+Strategy selected: {strategy}
+Key concepts: {key_concepts}
+Filters: {search_filters}
+Original query: {state["query_text"]}
+
+For {strategy} search strategy, prepare:
+1. An optimized search query text that works best with this strategy
+2. Search parameters including filters and limits
+3. Execution approach specific to this strategy
+
+Focus on query optimization, not execution."""
+
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Prepare the optimal search query and parameters for this legal research.")
+    ])
+
+    try:
+        prep_output = await structured_llm.ainvoke(prompt_template.format_messages())
+        
+        # Store prepared query and parameters
+        state["prepared_query"] = prep_output.search_query
+        state["search_parameters"] = prep_output.search_parameters
+        state["execution_strategy"] = prep_output.execution_strategy
+        
+        logger.info(f"Query prepared: {prep_output.search_query[:100]}...")
+        
+        # Stream completion update
+        writer({
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Query prepared",
+            "description": f"Optimized query for {strategy} strategy: '{prep_output.search_query[:50]}...'"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in query preparation: {e}")
+        # Fallback preparation
+        fallback_query = " ".join(key_concepts) if key_concepts else state["query_text"]
+        state["prepared_query"] = fallback_query
+        state["search_parameters"] = {"limit": 15, "min_score": 0.6}
+        state["execution_strategy"] = strategy
+
+    return state
+
+
+async def search_execution_node(state: ResearchState) -> ResearchState:
+    """
+    Execute the prepared search query.
+    
+    This focused node only executes searches - no LLM analysis.
+    """
+    step_id = f"search_execution_{uuid.uuid4().hex[:8]}"
+    writer = get_stream_writer()
+    writer({
+        "step_id": step_id,
+        "status": "in_progress",
+        "brief_description": "Executing search",
+        "description": "Executing the prepared search query to retrieve relevant legal documents."
+    })
+    logger.info("Executing SearchExecutionNode")
+
+    # Get prepared query and parameters
+    prepared_query = state.get("prepared_query", state["query_text"])
+    search_parameters = state.get("search_parameters", {"limit": 15, "min_score": 0.6})
+    execution_strategy = state.get("execution_strategy", "semantic")
+    search_filters = state.get("search_filters", {})
+    
+    # Build search kwargs from parameters and filters
+    search_kwargs = dict(search_parameters)
     if search_filters.get("year_from"):
         search_kwargs["year_from"] = search_filters["year_from"]
     if search_filters.get("year_to"):
@@ -356,40 +438,35 @@ async def retrieval_node(state: ResearchState) -> ResearchState:
     retrieved_docs = []
 
     try:
-        if strategy == "semantic":
-            # Use vector search with key concepts
-            query_text = " ".join(key_concepts) if key_concepts else state["query_text"]
-            results = await vector_search(query_text, **search_kwargs)
+        if execution_strategy == "semantic":
+            results = await vector_search(prepared_query, **search_kwargs)
             retrieved_docs.extend(results)
 
-        elif strategy == "fulltext":
-            # Use fulltext search
-            query_text = " ".join(key_concepts) if key_concepts else state["query_text"]
+        elif execution_strategy == "fulltext":
             results = fulltext_search(
-                query_text,
+                prepared_query,
                 "chunks",
                 **{k: v for k, v in search_kwargs.items() if k != "min_score"}
             )
             retrieved_docs.extend(results)
 
-        elif strategy == "citation":
-            # Use citation analysis
-            original_query = state["query_text"]
-            if any(pattern in original_query.lower() for pattern in ["v ", " v. ", "[", "]"]):
-                results = find_case_citations(original_query, "both")
+        elif execution_strategy == "citation":
+            if any(pattern in prepared_query.lower() for pattern in ["v ", " v. ", "[", "]"]):
+                results = find_case_citations(prepared_query, "both")
                 retrieved_docs.extend(results)
             else:
                 # Fallback to semantic if no citations detected
-                results = await vector_search(original_query, **search_kwargs)
+                results = await vector_search(prepared_query, **search_kwargs)
                 retrieved_docs.extend(results)
 
-        elif strategy == "concept":
-            # Use concept-based search
-            for concept in key_concepts:
+        elif execution_strategy == "concept":
+            # Execute concept searches for each term in prepared query
+            concepts = prepared_query.split()[:5]  # Limit concepts
+            for concept in concepts:
                 results = find_legal_concepts(
                     concept,
                     jurisdiction=search_kwargs.get("jurisdiction"),
-                    limit=search_kwargs.get("limit", 15)
+                    limit=search_kwargs.get("limit", 15) // len(concepts)
                 )
                 retrieved_docs.extend(results)
 
@@ -412,26 +489,26 @@ async def retrieval_node(state: ResearchState) -> ResearchState:
         # Update search history
         search_history = state.get("search_history", [])
         search_history.append({
-            "strategy": strategy,
-            "terms": key_concepts,
+            "strategy": execution_strategy,
+            "query": prepared_query,
             "filters": {k: v for k, v in search_kwargs.items() if k not in ["limit", "min_score"] and v is not None},
             "results_count": len(unique_docs),
             "timestamp": time.time()
         })
         state["search_history"] = search_history
 
-        logger.info(f"Retrieved {len(unique_docs)} documents using {strategy} strategy")
+        logger.info(f"Retrieved {len(unique_docs)} documents using {execution_strategy} strategy")
         
         # Stream completion update
         writer({
             "step_id": step_id,
             "status": "complete",
-            "brief_description": "Documents retrieved",
-            "description": f"Found {len(unique_docs)} relevant documents using {strategy} search"
+            "brief_description": "Search completed",
+            "description": f"Found {len(unique_docs)} relevant documents using {execution_strategy} search"
         })
 
     except Exception as e:
-        logger.error(f"Error during retrieval: {e}")
+        logger.error(f"Error during search execution: {e}")
         state["retrieved_docs"] = []
         state["total_results"] = 0
 
@@ -530,9 +607,9 @@ def simple_quality_check(state: ResearchState) -> str:
 
 async def refine_analyzer_node(state: ResearchState) -> ResearchState:
     """
-    Analyze what went wrong and suggest refinements.
+    Analyze what went wrong and suggest refinements, then apply them.
     
-    This focused node only analyzes and suggests - no strategy selection.
+    This focused node does LLM analysis and applies the minimal state updates.
     """
     step_id = f"refine_analyzer_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
@@ -589,28 +666,33 @@ Suggest specific improvements for the next search attempt.""")
             "reasoning": refinement_output.reasoning
         }
         
-        # Update query analysis with new terms
+        # Apply refinements immediately
         state["query_analysis"]["key_concepts"] = refinement_output.new_terms
+        if refinement_output.new_strategy:
+            state["search_strategy"]["strategy"] = refinement_output.new_strategy
+            state["search_strategy"]["reasoning"] = f"Refined strategy: {refinement_output.reasoning}"
         
-        logger.info(f"Refinement suggested: {refinement_output.reasoning}")
+        logger.info(f"Refinement suggested and applied: {refinement_output.reasoning}")
         
         # Stream completion update
         writer({
             "step_id": step_id,
             "status": "complete",
-            "brief_description": "Suggested refinements",
-            "description": f"Refinements suggested: {refinement_output.reasoning}"
+            "brief_description": "Refinements applied",
+            "description": f"Applied refinements for attempt #{state['refinement_count']}: {refinement_output.reasoning}"
         })
         
     except Exception as e:
         logger.error(f"Error in refinement analysis: {e}")
         # Fallback refinement
         current_concepts = query_analysis.get("key_concepts", [])
+        fallback_terms = current_concepts + ["legal", "case law"]
         state["refinement_suggestion"] = {
-            "new_terms": current_concepts + ["legal", "case law"],
+            "new_terms": fallback_terms,
             "new_strategy": "semantic",
             "reasoning": "Fallback refinement due to error"
         }
+        state["query_analysis"]["key_concepts"] = fallback_terms
 
     return state
 
@@ -629,7 +711,8 @@ def create_research_graph() -> StateGraph:
     workflow.add_node("query_analyzer", query_analyzer_node)
     workflow.add_node("strategy_selector", strategy_selector_node)
     workflow.add_node("filter_builder", filter_builder_node)
-    workflow.add_node("retrieval", retrieval_node)
+    workflow.add_node("query_preparation", query_preparation_node)
+    workflow.add_node("search_execution", search_execution_node)
     workflow.add_node("quality_assessor", quality_assessor_node)
     workflow.add_node("refine_analyzer", refine_analyzer_node)
 
@@ -637,8 +720,9 @@ def create_research_graph() -> StateGraph:
     workflow.set_entry_point("query_analyzer")
     workflow.add_edge("query_analyzer", "strategy_selector")
     workflow.add_edge("strategy_selector", "filter_builder")
-    workflow.add_edge("filter_builder", "retrieval")
-    workflow.add_edge("retrieval", "quality_assessor")
+    workflow.add_edge("filter_builder", "query_preparation")
+    workflow.add_edge("query_preparation", "search_execution")
+    workflow.add_edge("search_execution", "quality_assessor")
 
     # Conditional edge for quality assessment
     workflow.add_conditional_edges(

@@ -11,7 +11,6 @@ from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
 from langgraph.config import get_stream_writer
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -21,6 +20,8 @@ import time
 from google import genai
 
 from app.core.config import settings
+from app.core.llm import get_research_llm
+from app.core.llm import create_llm
 
 from .state import ResearchState, SearchPlan
 from ..tools.neo4j_tools import (
@@ -35,9 +36,9 @@ from ..tools.neo4j_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize LLM
-research_attrs = settings.llm_config.get("main", {}).get("research", {})
-llm = ChatGoogleGenerativeAI(google_api_key=settings.google_api_key, **research_attrs)
+# Initialize LLM using the config for research
+task_config = settings.llm_config.get("main", {}).get("research", {})
+llm = create_llm(task_config)
 
 
 # Structured output models

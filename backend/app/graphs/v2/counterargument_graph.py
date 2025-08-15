@@ -10,7 +10,6 @@ from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
 from langgraph.config import get_stream_writer
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -20,6 +19,7 @@ import uuid
 import os
 
 from app.core.config import settings
+from app.core.llm import create_llm
 from .state import (
     CounterArgumentState,
     CounterArgumentSeed,
@@ -42,9 +42,9 @@ from ...tools.neo4j_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize LLM
-counterargument_attrs = settings.llm_config.get("main", {}).get("counterargument", {})
-llm = ChatGoogleGenerativeAI(google_api_key=settings.google_api_key, **counterargument_attrs)
+# Initialize LLM using the config for counterargument
+task_config = settings.llm_config.get("main", {}).get("counterargument", {})
+llm = create_llm(task_config)
 
 
 # Simplified Pydantic models for structured output
@@ -53,6 +53,20 @@ class CounterArgumentSeedOutput(BaseModel):
     challenge_type: str = Field(description="precedent, procedural, factual, or policy")
     target_argument: int = Field(description="Index of argument being challenged (0-based)")
     brief_description: str = Field(description="One sentence challenge description")
+
+
+class SearchQueryOutput(BaseModel):
+    """Generated search query for counterargument research."""
+    primary_query: str = Field(description="Primary search query focusing on opposing arguments and weaknesses")
+    alternative_query: str = Field(description="Alternative search query for broader counterargument research")
+    focus_areas: List[str] = Field(description="List of specific legal areas or concepts to focus on")
+
+
+class SearchExecutionOutput(BaseModel):
+    """Results from search execution."""
+    total_documents: int = Field(description="Total number of documents retrieved")
+    unique_documents: int = Field(description="Number of unique documents after deduplication")
+    search_summary: str = Field(description="Brief summary of search results")
 
 
 class SingleCounterArgumentOutput(BaseModel):
@@ -79,56 +93,155 @@ class VulnerabilityAssessmentOutput(BaseModel):
 
 
 # Decomposed node functions
-async def rag_retrieval_node(state: CounterArgumentState) -> CounterArgumentState:
+async def query_generator_node(state: CounterArgumentState) -> CounterArgumentState:
     """
-    RAG Retrieval Node - Comprehensive knowledge graph retrieval.
+    Generate targeted search queries for counterargument research using LLM.
     
-    This focused node only does retrieval - no analysis or generation.
+    This focused node only generates queries - no search execution.
     """
-    step_id = f"rag_retrieval_{uuid.uuid4().hex[:8]}"
+    step_id = f"query_generator_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
     writer({
         "step_id": step_id,
         "status": "in_progress",
-        "brief_description": "Retrieving counterargument research",
-        "description": "Retrieving opposing precedents and legal authorities for counterargument analysis."
+        "brief_description": "Generating search queries",
+        "description": "Analyzing arguments to generate targeted search queries for counterargument research."
     })
-    logger.info("Starting RAG retrieval for counterargument generation")
+    logger.info("Starting LLM-guided query generation for counterargument research")
     
     key_arguments = state["key_arguments"]
     user_facts = state["user_facts"]
+    party_represented = state.get("party_represented", "")
     
-    # Extract meaningful keywords from arguments and authorities
-    keywords = set()
-    for arg in key_arguments:
+    # Create structured LLM for query generation
+    structured_llm = llm.with_structured_output(SearchQueryOutput)
+    
+    # Prepare arguments summary for query generation
+    arguments_summary = []
+    for i, arg in enumerate(key_arguments):
         if isinstance(arg, dict):
-            argument_text = arg.get("argument", "")
+            arg_text = arg.get("argument", "")
             authority = arg.get("supporting_authority", "")
-            # Add all capitalized words (likely legal concepts) and authorities
-            keywords.update([
-                word.strip(",.()") for word in argument_text.split()
-                if word.istitle() and len(word) > 4
-            ])
-            if authority:
-                keywords.add(authority)
-    # Fallback if no keywords found
-    if not keywords:
-        keywords.add("legal precedent")
+            arguments_summary.append(f"Argument {i+1}: {arg_text[:200]}... Authority: {authority}")
     
-    # Build a single meaningful query
-    query = " ".join(keywords)
-    logger.info(f"RAG retrieval using query: {query}")
+    party_context = ""
+    if party_represented:
+        party_context = f"\n\nParty represented: {party_represented}. Generate queries that would help opposing counsel find weaknesses in {party_represented}'s arguments."
     
+    # Generate search queries using LLM
+    system_prompt = f"""You are a legal research specialist for counterargument generation. Your job is to create targeted search queries that will find:
+
+1. Opposing precedents that contradict or weaken the arguments
+2. Cases with distinguishable facts that limit precedent applicability
+3. Policy arguments against the position
+4. Procedural challenges or standing issues
+5. Alternative legal interpretations
+
+REQUIREMENTS:
+- Generate queries that opposing counsel would use to attack these arguments
+- Focus on finding weaknesses, not supporting material
+- Include specific legal concepts and precedent names when possible
+- Target both broad legal principles and specific factual scenarios
+{party_context}
+
+Arguments to research against:
+{chr(10).join(arguments_summary)}
+
+Case facts: {user_facts[:300]}..."""
+
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content="Generate targeted search queries to find counterarguments and opposing precedents.")
+    ])
+
+    try:
+        query_output = await structured_llm.ainvoke(prompt_template.format_messages())
+        
+        # Store generated queries
+        state["search_queries"] = {
+            "primary_query": query_output.primary_query,
+            "alternative_query": query_output.alternative_query,
+            "focus_areas": query_output.focus_areas
+        }
+        
+        logger.info(f"Generated primary query: {query_output.primary_query}")
+        logger.info(f"Generated alternative query: {query_output.alternative_query}")
+        
+        # Stream completion update
+        writer({
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Search queries generated",
+            "description": f"Generated queries: '{query_output.primary_query[:50]}...' and '{query_output.alternative_query[:50]}...'"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating search queries: {e}")
+        # Fallback to basic query generation
+        primary_query = f"opposing arguments legal precedent {' '.join([arg.get('supporting_authority', '') for arg in key_arguments if isinstance(arg, dict)])}"
+        alternative_query = f"legal challenges factual distinguishers {user_facts.split()[:5]}"
+        focus_areas = ["legal precedent", "opposing arguments"]
+        
+        state["search_queries"] = {
+            "primary_query": primary_query,
+            "alternative_query": alternative_query,
+            "focus_areas": focus_areas
+        }
+
+    return state
+
+
+async def search_executor_node(state: CounterArgumentState) -> CounterArgumentState:
+    """
+    Execute the generated search queries to retrieve documents.
+    
+    This focused node only executes searches - no LLM analysis.
+    """
+    step_id = f"search_executor_{uuid.uuid4().hex[:8]}"
+    writer = get_stream_writer()
+    writer({
+        "step_id": step_id,
+        "status": "in_progress",
+        "brief_description": "Executing searches",
+        "description": "Executing the generated search queries to retrieve relevant legal documents."
+    })
+    logger.info("Starting search execution for counterargument research")
+    
+    search_queries = state.get("search_queries", {})
+    primary_query = search_queries.get("primary_query", "legal precedent")
+    alternative_query = search_queries.get("alternative_query", "opposing arguments")
+    focus_areas = search_queries.get("focus_areas", [])
+    
+    # Perform searches with generated queries
     retrieved_docs = []
     try:
-        # Single vector search with meaningful keywords
-        results = await vector_search(
-            query_text=query,
+        # Primary search with the main query
+        primary_results = await vector_search(
+            query_text=primary_query,
             jurisdiction=None,
             min_score=0.6,
-            limit=20
+            limit=15
         )
-        retrieved_docs.extend(results)
+        retrieved_docs.extend(primary_results)
+        
+        # Alternative search with secondary query
+        alt_results = await vector_search(
+            query_text=alternative_query,
+            jurisdiction=None,
+            min_score=0.6,
+            limit=10
+        )
+        retrieved_docs.extend(alt_results)
+        
+        # Focused searches on specific areas
+        for focus_area in focus_areas[:3]:  # Limit to top 3 focus areas
+            focus_results = await vector_search(
+                query_text=focus_area,
+                jurisdiction=None,
+                min_score=0.7,
+                limit=5
+            )
+            retrieved_docs.extend(focus_results)
         
         # Remove duplicates
         seen_ids = set()
@@ -139,7 +252,7 @@ async def rag_retrieval_node(state: CounterArgumentState) -> CounterArgumentStat
                 seen_ids.add(doc_id)
                 unique_docs.append(doc)
         
-        state["retrieved_docs"] = unique_docs[:20]  # Limit for performance
+        state["retrieved_docs"] = unique_docs[:25]  # Increased limit for counterargument research
         
         logger.info(f"Retrieved {len(unique_docs)} documents for counterargument analysis")
         
@@ -147,12 +260,12 @@ async def rag_retrieval_node(state: CounterArgumentState) -> CounterArgumentStat
         writer({
             "step_id": step_id,
             "status": "complete",
-            "brief_description": "Research documents retrieved",
+            "brief_description": "Document retrieval completed",
             "description": f"Retrieved {len(unique_docs)} documents with opposing precedents and challenges"
         })
         
     except Exception as e:
-        logger.error(f"Error in RAG retrieval: {e}")
+        logger.error(f"Error in search execution: {e}")
         state["retrieved_docs"] = []
     
     return state
@@ -616,15 +729,17 @@ def create_counterargument_graph() -> StateGraph:
     workflow = StateGraph(CounterArgumentState)
 
     # Add decomposed nodes
-    workflow.add_node("rag_retrieval", rag_retrieval_node)
+    workflow.add_node("query_generator", query_generator_node)
+    workflow.add_node("search_executor", search_executor_node)
     workflow.add_node("vulnerability_analysis", vulnerability_analysis_node)
     workflow.add_node("challenge_identifier", challenge_identifier_node)
     workflow.add_node("counterargument_developer", counterargument_developer_node)
     workflow.add_node("rebuttal_generator", rebuttal_generator_node)
 
     # Linear workflow edges
-    workflow.set_entry_point("rag_retrieval")
-    workflow.add_edge("rag_retrieval", "vulnerability_analysis")
+    workflow.set_entry_point("query_generator")
+    workflow.add_edge("query_generator", "search_executor")
+    workflow.add_edge("search_executor", "vulnerability_analysis")
     workflow.add_edge("vulnerability_analysis", "challenge_identifier")
     workflow.add_edge("challenge_identifier", "counterargument_developer")
     workflow.add_edge("counterargument_developer", "rebuttal_generator")
