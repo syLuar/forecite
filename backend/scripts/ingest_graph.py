@@ -28,286 +28,31 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import asyncio
 import time
-import functools
-from contextlib import contextmanager
 import re
-import hashlib
-import pickle
-import json
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from neo4j import GraphDatabase
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.schema import Document
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import PromptTemplate
-from google import genai
-from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.llm import create_llm
 
 from dotenv import load_dotenv
 
-# Import the new PDF processing module
-from process_pdf import process_pdf_document
+# Import shared helpers
+from ingest_graph_helpers import (
+    LLMCache, PerformanceTracker, Neo4jConnection, BaseDocumentProcessor,
+    LegalEntities, DocumentMetadata,
+    extract_citation_from_name, extract_year_from_citation, 
+    infer_jurisdiction, infer_court_level, determine_document_type
+)
 
 # Load environment variables from .env file
 load_dotenv()
-
-
-class LLMCache:
-    """
-    Caches LLM results including embeddings, summaries, and entity extractions
-    to avoid regenerating them during development.
-    Uses SHA-256 hash of text content as cache keys for reliability.
-    """
-    
-    def __init__(self, cache_dir: Optional[str] = None):
-        """Initialize the LLM cache.
-        
-        Args:
-            cache_dir: Directory to store cache files. Defaults to cache/ in project root.
-        """
-        if cache_dir is None:
-            # Use cache directory in project root
-            project_root = Path(__file__).parent.parent.parent
-            cache_dir = project_root / "cache"
-        
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
-        
-        # Separate files for different types of cached data
-        self.embeddings_file = self.cache_dir / "embeddings_cache.pkl"
-        self.summaries_file = self.cache_dir / "summaries_cache.pkl" 
-        self.entities_file = self.cache_dir / "entities_cache.pkl"
-        self.metadata_file = self.cache_dir / "cache_metadata.json"
-        
-        # Load existing caches
-        self.embeddings_cache = self._load_cache_file(self.embeddings_file, "embeddings")
-        self.summaries_cache = self._load_cache_file(self.summaries_file, "summaries")
-        self.entities_cache = self._load_cache_file(self.entities_file, "entities")
-        self.cache_metadata = self._load_cache_metadata()
-        
-        # Track cache stats for different operations
-        self.cache_stats = {
-            "embeddings": {"hits": 0, "misses": 0},
-            "summaries": {"hits": 0, "misses": 0}, 
-            "entities": {"hits": 0, "misses": 0}
-        }
-        
-        logger.info(f"📦 LLM cache initialized at {self.cache_dir}")
-        logger.info(f"📊 Cache contains:")
-        logger.info(f"   - {len(self.embeddings_cache)} embeddings")
-        logger.info(f"   - {len(self.summaries_cache)} summaries") 
-        logger.info(f"   - {len(self.entities_cache)} entity extractions")
-    
-    def _generate_cache_key(self, text: str) -> str:
-        """Generate a SHA-256 hash key for the given text."""
-        return hashlib.sha256(text.encode('utf-8')).hexdigest()
-    
-    def _load_cache_file(self, file_path: Path, cache_type: str) -> Dict[str, Any]:
-        """Load a specific cache file from disk."""
-        if file_path.exists():
-            try:
-                with open(file_path, 'rb') as f:
-                    return pickle.load(f)
-            except Exception as e:
-                logger.warning(f"Failed to load {cache_type} cache: {e}")
-                return {}
-        return {}
-    
-    def _load_cache_metadata(self) -> Dict[str, Any]:
-        """Load cache metadata from disk."""
-        if self.metadata_file.exists():
-            try:
-                with open(self.metadata_file, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Failed to load cache metadata: {e}")
-                return {"version": "2.0", "created_at": time.time()}
-        return {"version": "2.0", "created_at": time.time()}
-    
-    def _save_cache(self):
-        """Save all caches to disk."""
-        try:
-            # Save embeddings
-            with open(self.embeddings_file, 'wb') as f:
-                pickle.dump(self.embeddings_cache, f)
-            
-            # Save summaries
-            with open(self.summaries_file, 'wb') as f:
-                pickle.dump(self.summaries_cache, f)
-                
-            # Save entities
-            with open(self.entities_file, 'wb') as f:
-                pickle.dump(self.entities_cache, f)
-            
-            # Update and save metadata
-            total_hits = sum(stats["hits"] for stats in self.cache_stats.values())
-            total_misses = sum(stats["misses"] for stats in self.cache_stats.values())
-            
-            self.cache_metadata.update({
-                "last_updated": time.time(),
-                "total_embeddings": len(self.embeddings_cache),
-                "total_summaries": len(self.summaries_cache),
-                "total_entities": len(self.entities_cache),
-                "cache_stats": self.cache_stats,
-                "total_hits": total_hits,
-                "total_misses": total_misses
-            })
-            
-            with open(self.metadata_file, 'w') as f:
-                json.dump(self.cache_metadata, f, indent=2)
-            
-            logger.debug(f"💾 Cache saved with {len(self.embeddings_cache)} embeddings, {len(self.summaries_cache)} summaries, {len(self.entities_cache)} entities")
-        except Exception as e:
-            logger.error(f"Failed to save cache: {e}")
-    
-    # Embedding methods
-    def get_embeddings(self, texts: List[str]) -> tuple[List[List[float]], List[str]]:
-        """
-        Get embeddings for texts, using cache when available.
-        
-        Returns:
-            tuple: (embeddings_list, uncached_texts)
-                - embeddings_list: List of embeddings (None for uncached texts)
-                - uncached_texts: List of texts that need to be embedded
-        """
-        embeddings = []
-        uncached_texts = []
-        
-        for text in texts:
-            cache_key = self._generate_cache_key(text)
-            
-            if cache_key in self.embeddings_cache:
-                embeddings.append(self.embeddings_cache[cache_key])
-                self.cache_stats["embeddings"]["hits"] += 1
-            else:
-                embeddings.append(None)  # Placeholder for uncached embedding
-                uncached_texts.append(text)
-                self.cache_stats["embeddings"]["misses"] += 1
-        
-        return embeddings, uncached_texts
-    
-    def store_embeddings(self, texts: List[str], embeddings: List[List[float]]):
-        """Store embeddings in cache."""
-        if len(texts) != len(embeddings):
-            logger.error(f"Mismatch: {len(texts)} texts vs {len(embeddings)} embeddings")
-            return
-        
-        for text, embedding in zip(texts, embeddings):
-            cache_key = self._generate_cache_key(text)
-            self.embeddings_cache[cache_key] = embedding
-        
-        # Save to disk
-        self._save_cache()
-    
-    # Summary methods
-    def get_summary(self, text: str) -> Optional[str]:
-        """Get cached summary for text, or None if not cached."""
-        cache_key = self._generate_cache_key(text)
-        
-        if cache_key in self.summaries_cache:
-            self.cache_stats["summaries"]["hits"] += 1
-            return self.summaries_cache[cache_key]
-        else:
-            self.cache_stats["summaries"]["misses"] += 1
-            return None
-    
-    def store_summary(self, text: str, summary: str):
-        """Store summary in cache."""
-        cache_key = self._generate_cache_key(text)
-        self.summaries_cache[cache_key] = summary
-        self._save_cache()
-    
-    # Entity extraction methods
-    def get_entities(self, text: str) -> Optional[Dict[str, List[str]]]:
-        """Get cached entity extraction for text, or None if not cached."""
-        cache_key = self._generate_cache_key(text)
-        
-        if cache_key in self.entities_cache:
-            self.cache_stats["entities"]["hits"] += 1
-            return self.entities_cache[cache_key]
-        else:
-            self.cache_stats["entities"]["misses"] += 1
-            return None
-    
-    def store_entities(self, text: str, entities: Dict[str, List[str]]):
-        """Store entity extraction results in cache."""
-        cache_key = self._generate_cache_key(text)
-        self.entities_cache[cache_key] = entities
-        self._save_cache()
-    
-    def clear_cache(self):
-        """Clear all cached data."""
-        self.embeddings_cache.clear()
-        self.summaries_cache.clear()
-        self.entities_cache.clear()
-        self.cache_stats = {
-            "embeddings": {"hits": 0, "misses": 0},
-            "summaries": {"hits": 0, "misses": 0}, 
-            "entities": {"hits": 0, "misses": 0}
-        }
-        self._save_cache()
-        logger.info("🗑️  Cache cleared")
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache performance statistics."""
-        total_hits = sum(stats["hits"] for stats in self.cache_stats.values())
-        total_misses = sum(stats["misses"] for stats in self.cache_stats.values())
-        total_requests = total_hits + total_misses
-        overall_hit_rate = (total_hits / total_requests * 100) if total_requests > 0 else 0
-        
-        # Calculate individual hit rates
-        individual_rates = {}
-        for operation, stats in self.cache_stats.items():
-            operation_total = stats["hits"] + stats["misses"]
-            individual_rates[f"{operation}_hit_rate"] = (stats["hits"] / operation_total * 100) if operation_total > 0 else 0
-        
-        # Calculate cache file sizes
-        cache_sizes = {}
-        for cache_type, file_path in [
-            ("embeddings", self.embeddings_file),
-            ("summaries", self.summaries_file), 
-            ("entities", self.entities_file)
-        ]:
-            cache_sizes[f"{cache_type}_size_mb"] = round(file_path.stat().st_size / (1024 * 1024), 2) if file_path.exists() else 0
-        
-        return {
-            "total_cached_embeddings": len(self.embeddings_cache),
-            "total_cached_summaries": len(self.summaries_cache),
-            "total_cached_entities": len(self.entities_cache),
-            "cache_stats": self.cache_stats,
-            "overall_hit_rate_percent": round(overall_hit_rate, 2),
-            **individual_rates,
-            **cache_sizes
-        }
-    
-    def print_cache_stats(self):
-        """Print cache statistics."""
-        stats = self.get_cache_stats()
-        logger.info("📈 LLM CACHE STATISTICS")
-        logger.info("=" * 50)
-        logger.info(f"Total cached embeddings: {stats['total_cached_embeddings']}")
-        logger.info(f"Total cached summaries: {stats['total_cached_summaries']}")
-        logger.info(f"Total cached entities: {stats['total_cached_entities']}")
-        logger.info("")
-        logger.info("Hit rates by operation:")
-        logger.info(f"  Embeddings: {stats['embeddings_hit_rate']:.1f}% ({stats['cache_stats']['embeddings']['hits']}/{stats['cache_stats']['embeddings']['hits'] + stats['cache_stats']['embeddings']['misses']})")
-        logger.info(f"  Summaries: {stats['summaries_hit_rate']:.1f}% ({stats['cache_stats']['summaries']['hits']}/{stats['cache_stats']['summaries']['hits'] + stats['cache_stats']['summaries']['misses']})")
-        logger.info(f"  Entities: {stats['entities_hit_rate']:.1f}% ({stats['cache_stats']['entities']['hits']}/{stats['cache_stats']['entities']['hits'] + stats['cache_stats']['entities']['misses']})")
-        logger.info(f"  Overall: {stats['overall_hit_rate_percent']:.1f}%")
-        logger.info("")
-        logger.info("Cache file sizes:")
-        logger.info(f"  Embeddings: {stats['embeddings_size_mb']} MB")
-        logger.info(f"  Summaries: {stats['summaries_size_mb']} MB")
-        logger.info(f"  Entities: {stats['entities_size_mb']} MB")
-        logger.info("=" * 50)
-
 
 # Configure logging
 logging.basicConfig(
@@ -315,224 +60,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# Pydantic schemas for structured output
-class LegalEntities(BaseModel):
-    """Schema for extracting legal entities from text."""
-
-    cases: List[str] = Field(
-        description="List of case names and citations (include year if available)"
-    )
-    statutes: List[str] = Field(description="List of statute references with sections")
-    concepts: List[str] = Field(description="List of key legal concepts and principles")
-    courts: List[str] = Field(description="List of court names")
-    judges: List[str] = Field(description="List of judge names mentioned")
-    holdings: List[str] = Field(
-        description="List of key legal holdings or ratio decidendi"
-    )
-    facts: List[str] = Field(description="List of key factual elements")
-    legal_tests: List[str] = Field(
-        description="List of legal tests or standards mentioned"
-    )
-
-
-class DocumentMetadata(BaseModel):
-    """Schema for extracting document metadata."""
-
-    jurisdiction: str = Field(
-        description="Jurisdiction such as Singapore, UK, US, etc."
-    )
-    court_level: str = Field(
-        description="Court level such as Supreme Court, High Court, District Court, etc."
-    )
-    parties: List[str] = Field(
-        description="List of party names (plaintiff, defendant, appellant, respondent)"
-    )
-    legal_areas: List[str] = Field(
-        description="List of areas of law (contract, tort, criminal, etc.)"
-    )
-
-
-class PerformanceTracker:
-    """Track performance metrics during ingestion."""
-
-    def __init__(self):
-        self.metrics = {
-            "total_start_time": time.time(),
-            "documents_processed": 0,
-            "chunks_created": 0,
-            "embeddings_generated": 0,
-            "llm_calls": 0,
-            "db_operations": 0,
-            "pdf_extraction_time": 0,
-            "chunking_time": 0,
-            "embedding_time": 0,
-            "llm_time": 0,
-            "db_time": 0,
-            "entity_extraction_time": 0,
-            "summary_generation_time": 0,
-        }
-
-    def record_metric(self, key: str, value: float = 1):
-        """Record a metric value."""
-        if key in self.metrics:
-            self.metrics[key] += value
-        else:
-            self.metrics[key] = value
-
-    def print_summary(self, llm_cache: Optional[LLMCache] = None):
-        """Print performance summary."""
-        total_time = time.time() - self.metrics["total_start_time"]
-
-        logger.info("=" * 60)
-        logger.info("🔍 PERFORMANCE SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"Total execution time: {total_time:.2f}s")
-        logger.info(f"Documents processed: {self.metrics['documents_processed']}")
-        logger.info(f"Chunks created: {self.metrics['chunks_created']}")
-        logger.info(f"Embeddings generated: {self.metrics['embeddings_generated']}")
-        logger.info(f"LLM calls made: {self.metrics['llm_calls']}")
-        logger.info(f"Database operations: {self.metrics['db_operations']}")
-        logger.info("")
-        logger.info("⏱️  Time breakdown:")
-        logger.info(f"  PDF extraction: {self.metrics['pdf_extraction_time']:.2f}s")
-        logger.info(f"  Document chunking: {self.metrics['chunking_time']:.2f}s")
-        logger.info(f"  Embedding generation: {self.metrics['embedding_time']:.2f}s")
-        logger.info(f"  LLM operations: {self.metrics['llm_time']:.2f}s")
-        logger.info(
-            f"    - Entity extraction: {self.metrics['entity_extraction_time']:.2f}s"
-        )
-        logger.info(
-            f"    - Summary generation: {self.metrics['summary_generation_time']:.2f}s"
-        )
-        logger.info(f"  Database operations: {self.metrics['db_time']:.2f}s")
-        logger.info("")
-
-        # Print LLM cache statistics if available
-        if llm_cache:
-            logger.info("")
-            llm_cache.print_cache_stats()
-
-        if self.metrics["documents_processed"] > 0:
-            avg_per_doc = total_time / self.metrics["documents_processed"]
-            logger.info(f"📊 Average time per document: {avg_per_doc:.2f}s")
-
-        if self.metrics["chunks_created"] > 0:
-            avg_per_chunk = total_time / self.metrics["chunks_created"]
-            logger.info(f"📊 Average time per chunk: {avg_per_chunk:.2f}s")
-
-        # Identify bottlenecks
-        time_operations = [
-            ("PDF extraction", self.metrics["pdf_extraction_time"]),
-            ("Chunking", self.metrics["chunking_time"]),
-            ("Embeddings", self.metrics["embedding_time"]),
-            ("LLM operations", self.metrics["llm_time"]),
-            ("Database operations", self.metrics["db_time"]),
-        ]
-
-        sorted_ops = sorted(time_operations, key=lambda x: x[1], reverse=True)
-        logger.info("")
-        logger.info("🚨 Potential bottlenecks (sorted by time):")
-        for i, (op_name, op_time) in enumerate(sorted_ops[:3], 1):
-            percentage = (op_time / total_time) * 100 if total_time > 0 else 0
-            logger.info(f"  {i}. {op_name}: {op_time:.2f}s ({percentage:.1f}%)")
-
-        logger.info("=" * 60)
-
-
 # Global performance tracker
 perf_tracker = PerformanceTracker()
 
 
-class Neo4jConnection:
-    """Manages Neo4j database connection and operations."""
-
-    def __init__(self):
-        self.driver = GraphDatabase.driver(
-            settings.neo4j_uri, auth=(settings.neo4j_username, settings.neo4j_password)
-        )
-        self.database = settings.neo4j_database
-
-    def close(self):
-        """Close the Neo4j driver connection."""
-        if self.driver:
-            self.driver.close()
-
-    def execute_query(
-        self, query: str, parameters: Optional[Dict] = None
-    ) -> List[Dict]:
-        """Execute a Cypher query and return results."""
-        start_time = time.time()
-        with self.driver.session(database=self.database) as session:
-            result = session.run(query, parameters or {})
-            data = [record.data() for record in result]
-
-        query_time = time.time() - start_time
-        perf_tracker.record_metric("db_time", query_time)
-        perf_tracker.record_metric("db_operations", 1)
-
-        return data
-
-    def execute_write_query(
-        self, query: str, parameters: Optional[Dict] = None
-    ) -> List[Dict]:
-        """Execute a write Cypher query and return results."""
-
-        def _execute_query(tx):
-            result = tx.run(query, parameters or {})
-            return [record.data() for record in result]
-
-        start_time = time.time()
-        with self.driver.session(database=self.database) as session:
-            data = session.execute_write(_execute_query)
-
-        query_time = time.time() - start_time
-        perf_tracker.record_metric("db_time", query_time)
-        perf_tracker.record_metric("db_operations", 1)
-
-        return data
-
-
-class DocumentProcessor:
+class DocumentProcessor(BaseDocumentProcessor):
     """Handles document processing including chunking and embedding generation."""
 
     def __init__(self, use_embedding_cache: bool = True):
-        # Configure Google AI with API key
-        _client = genai.Client(api_key=settings.google_api_key)
+        super().__init__(use_cache=use_embedding_cache, perf_tracker=perf_tracker)
 
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
-            separators=["\n\n", "\n", ". ", " ", ""],
-        )
-
-        embeddings_attrs = settings.llm_config.get("embeddings", {})
-        self.embeddings = GoogleGenerativeAIEmbeddings(**embeddings_attrs)
-
-        # Initialize embedding cache
-        self.use_cache = use_embedding_cache
-        self.llm_cache = LLMCache() if use_embedding_cache else None
-
-        entity_extraction_attrs = settings.llm_config.get("ingestion", {}).get(
-            "entity_extraction", {}
-        )
-        self.entity_extraction_llm = ChatGoogleGenerativeAI(
-            google_api_key=settings.google_api_key, **entity_extraction_attrs
-        )
-
-        summary_generation_attrs = settings.llm_config.get("ingestion", {}).get(
-            "summary_generation", {}
-        )
-        self.summary_generation_llm = ChatGoogleGenerativeAI(
-            google_api_key=settings.google_api_key, **summary_generation_attrs
-        )
-
-        metadata_extraction_attrs = settings.llm_config.get("ingestion", {}).get(
-            "metadata_extraction", {}
-        )
-        self.metadata_extraction_llm = ChatGoogleGenerativeAI(
-            google_api_key=settings.google_api_key, **metadata_extraction_attrs
-        )
+        self.entity_extraction_llm = create_llm(settings.llm_config.get("ingestion", {}).get("entity_extraction", {}))
+        self.summary_generation_llm = create_llm(settings.llm_config.get("ingestion", {}).get("summary_generation", {}))
+        self.metadata_extraction_llm = create_llm(settings.llm_config.get("ingestion", {}).get("metadata_extraction", {}))
 
         # Set up structured output parsers and chains
         self.entity_parser = PydanticOutputParser(pydantic_object=LegalEntities)
@@ -576,112 +116,12 @@ Filename: {filename}""",
             metadata_prompt | self.metadata_extraction_llm | self.metadata_parser
         )
 
-    def extract_text_from_pdf(self, pdf_path: Path) -> str:
-        """Extract text content from a PDF file using the enhanced processor."""
-        try:
-            start_time = time.time()
-
-            # Use the new PDF processor to extract and integrate content
-            pages = process_pdf_document(str(pdf_path))
-
-            if not pages:
-                logger.error(f"No pages extracted from {pdf_path}")
-                return ""
-
-            # Combine all page content into a single text
-            full_text = ""
-            for page in pages:
-                if full_text:
-                    full_text += "\n\n"
-                full_text += page.get("content", "")
-
-            extraction_time = time.time() - start_time
-            perf_tracker.record_metric("pdf_extraction_time", extraction_time)
-
-            logger.info(
-                f"📝 Extracted {len(pages)} pages with integrated footnotes from {pdf_path.name}"
-            )
-            return full_text.strip()
-
-        except Exception as e:
-            logger.error(f"Error extracting text from {pdf_path}: {e}")
-            return ""
-
-    def chunk_document(self, text: str, source: str) -> List[Document]:
-        """Split document text into overlapping chunks."""
-        start_time = time.time()
-        chunks = self.text_splitter.split_text(text)
-        documents = []
-
-        for i, chunk in enumerate(chunks):
-            doc = Document(
-                page_content=chunk,
-                metadata={
-                    "source": source,
-                    "chunk_index": i,
-                    "total_chunks": len(chunks),
-                },
-            )
-            documents.append(doc)
-
-        chunking_time = time.time() - start_time
-        perf_tracker.record_metric("chunking_time", chunking_time)
-        perf_tracker.record_metric("chunks_created", len(documents))
-        logger.info(f"📝 Created {len(documents)} chunks for {source}")
-        return documents
-
-    async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts with caching support."""
-        try:
-            start_time = time.time()
-            logger.info(f"🔢 Generating embeddings for {len(texts)} texts...")
-            
-            if self.use_cache and self.llm_cache:
-                # Check cache first
-                cached_embeddings, uncached_texts = self.llm_cache.get_embeddings(texts)
-                
-                if uncached_texts:
-                    logger.info(f"📦 Cache hit for {len(texts) - len(uncached_texts)}/{len(texts)} texts")
-                    logger.info(f"🔢 Generating {len(uncached_texts)} new embeddings...")
-                    
-                    # Generate embeddings only for uncached texts
-                    new_embeddings = await self.embeddings.aembed_documents(uncached_texts)
-                    
-                    # Store new embeddings in cache
-                    self.llm_cache.store_embeddings(uncached_texts, new_embeddings)
-                    
-                    # Merge cached and new embeddings
-                    embeddings = []
-                    new_embedding_iter = iter(new_embeddings)
-                    
-                    for cached_embedding in cached_embeddings:
-                        if cached_embedding is None:
-                            embeddings.append(next(new_embedding_iter))
-                        else:
-                            embeddings.append(cached_embedding)
-                else:
-                    logger.info(f"📦 All embeddings found in cache!")
-                    embeddings = [emb for emb in cached_embeddings if emb is not None]
-            else:
-                # No caching - generate all embeddings
-                embeddings = await self.embeddings.aembed_documents(texts)
-
-            embedding_time = time.time() - start_time
-            perf_tracker.record_metric("embedding_time", embedding_time)
-            perf_tracker.record_metric("embeddings_generated", len(texts))
-
-            logger.info(f"✅ Generated {len(embeddings)} embeddings")
-            return embeddings
-        except Exception as e:
-            logger.error(f"Error generating embeddings: {e}")
-            return []
-
     async def generate_summary(self, text: str) -> str:
         """Generate a summary of the text using LLM with caching support."""
         try:
             # Check cache first
-            if self.use_cache and self.llm_cache:
-                cached_summary = self.llm_cache.get_summary(text)
+            if self.use_cache and self.cache:
+                cached_summary = self.cache.get_summary(text)
                 if cached_summary:
                     logger.debug("📦 Summary found in cache")
                     return cached_summary
@@ -712,8 +152,8 @@ Filename: {filename}""",
             perf_tracker.record_metric("llm_calls", 1)
 
             # Store in cache
-            if self.use_cache and self.llm_cache:
-                self.llm_cache.store_summary(text, summary)
+            if self.use_cache and self.cache:
+                self.cache.store_summary(text, summary)
 
             return summary
         except Exception as e:
@@ -724,8 +164,8 @@ Filename: {filename}""",
         """Extract legal entities from the text using structured output with caching support."""
         try:
             # Check cache first
-            if self.use_cache and self.llm_cache:
-                cached_entities = self.llm_cache.get_entities(text)
+            if self.use_cache and self.cache:
+                cached_entities = self.cache.get_entities(text)
                 if cached_entities:
                     logger.debug("📦 Entities found in cache")
                     return cached_entities
@@ -755,8 +195,8 @@ Filename: {filename}""",
                     ]
 
             # Store in cache
-            if self.use_cache and self.llm_cache:
-                self.llm_cache.store_entities(text, entities_dict)
+            if self.use_cache and self.cache:
+                self.cache.store_entities(text, entities_dict)
 
             return entities_dict
 
@@ -796,7 +236,7 @@ Filename: {filename}""",
         Pattern to match: paragraph numbers at the start of lines
         """
         paragraph_numbers = set()
-        # Look for pattern like ".\n123 " where 123 is a paragraph number
+        # Look for pattern like ".\n(\d+)\s" where 123 is a paragraph number
         matches = re.finditer(r"\.\n(\d+)\s", text)
         for match in matches:
             paragraph_num = match.group(1)
@@ -812,7 +252,7 @@ class GraphBuilder:
         self.neo4j = neo4j_conn
         self.processor = DocumentProcessor(use_embedding_cache=use_embedding_cache)
 
-    def setup_database_schema(self):
+    async def setup_database_schema(self):
         """Create constraints, indexes, and vector index in Neo4j."""
         logger.info("Setting up database schema...")
 
@@ -829,7 +269,7 @@ class GraphBuilder:
 
         for constraint in constraints:
             try:
-                self.neo4j.execute_query(constraint)
+                await self.neo4j.execute_query(constraint)
                 logger.info(f"Created constraint: {constraint}")
             except Exception as e:
                 logger.warning(f"Constraint already exists or error: {e}")
@@ -845,7 +285,7 @@ class GraphBuilder:
 
         for index in indexes:
             try:
-                self.neo4j.execute_query(index)
+                await self.neo4j.execute_query(index)
                 logger.info(f"Created index: {index}")
             except Exception as e:
                 logger.warning(f"Index already exists or error: {e}")
@@ -857,7 +297,7 @@ class GraphBuilder:
         """
 
         try:
-            self.neo4j.execute_query(fulltext_index_query)
+            await self.neo4j.execute_query(fulltext_index_query)
             logger.info(
                 "Created fulltext index: legal_text_search for Document.full_text"
             )
@@ -871,15 +311,15 @@ class GraphBuilder:
         """
 
         try:
-            self.neo4j.execute_query(chunk_fulltext_query)
+            await self.neo4j.execute_query(chunk_fulltext_query)
             logger.info(
                 "Created fulltext index: chunk_text_search for Chunk text and summary"
             )
         except Exception as e:
             logger.warning(f"Chunk fulltext index already exists or error: {e}")
 
-        embedding_dimension = settings.model_config.get("embeddings", {}).get(
-            "dimension", 3072
+        embedding_dimension = settings.llm_config.get("embeddings", {}).get(
+            "dimension", 768
         )
         vector_index_query = f"""
         CREATE VECTOR INDEX {settings.vector_index_name} IF NOT EXISTS
@@ -891,30 +331,28 @@ class GraphBuilder:
             }}
         }}
         """
-        self.neo4j.execute_query(vector_index_query)
+        await self.neo4j.execute_query(vector_index_query)
 
-    def reset_database(self):
+    async def reset_database(self):
         """Clear all data from the database."""
         logger.warning("Resetting database - all data will be deleted!")
 
         # Clear all nodes and relationships first
         try:
-            self.neo4j.execute_query("MATCH (n) DETACH DELETE n")
+            await self.neo4j.execute_query("MATCH (n) DETACH DELETE n")
             logger.info("Successfully cleared all nodes and relationships")
         except Exception as e:
             logger.error(f"Failed to clear nodes and relationships: {e}")
 
-        self.neo4j.execute_query(f"DROP INDEX {settings.vector_index_name}")
-
         try:
             # List and drop any existing indexes
-            result = self.neo4j.execute_query("SHOW INDEXES YIELD name, type")
+            result = await self.neo4j.execute_query("SHOW INDEXES YIELD name, type")
             for record in result:
                 index_name = record["name"]
                 index_type = record["type"]
-                if index_name == settings.vector_index_name:
+                if index_name in [settings.vector_index_name, "legal_text_search", "chunk_text_search"]:
                     try:
-                        self.neo4j.execute_query(f"DROP INDEX `{index_name}`")
+                        await self.neo4j.execute_query(f"DROP INDEX `{index_name}`")
                         logger.info(f"Dropped index: {index_name}")
                     except Exception as drop_e:
                         logger.info(f"Could not drop index {index_name}: {drop_e}")
@@ -969,7 +407,7 @@ class GraphBuilder:
         RETURN d
         """
 
-        self.neo4j.execute_write_query(create_doc_query, doc_params)
+        await self.neo4j.execute_write_query(create_doc_query, doc_params)
 
         # Chunk the document
         chunks = self.processor.chunk_document(text, str(pdf_path.name))
@@ -1112,7 +550,7 @@ class GraphBuilder:
         RETURN c
         """
 
-        self.neo4j.execute_write_query(create_chunk_query, chunk_params)
+        await self.neo4j.execute_write_query(create_chunk_query, chunk_params)
 
         # Create reference relationships based on entities
         await self._create_reference_relationships(chunk_id, entities)
@@ -1139,7 +577,7 @@ class GraphBuilder:
                     """
 
                     try:
-                        self.neo4j.execute_write_query(
+                        await self.neo4j.execute_write_query(
                             create_ref_query,
                             {
                                 "source_chunk_id": source_chunk_id,
@@ -1181,7 +619,7 @@ class GraphBuilder:
             """
 
             try:
-                self.neo4j.execute_write_query(
+                await self.neo4j.execute_write_query(
                     find_ref_query,
                     {
                         "chunk_id": chunk_id,
@@ -1196,11 +634,9 @@ class GraphBuilder:
         try:
             # Basic metadata from filename
             filename = pdf_path.name
-            metadata = {"type": self._determine_document_type(pdf_path)}
+            metadata = {"type": determine_document_type(pdf_path)}
 
             # Extract year from filename (e.g., "[2019] SGCA 42.pdf")
-            import re
-
             year_match = re.search(r"\[(\d{4})\]", filename)
             if year_match:
                 metadata["year"] = int(year_match.group(1))
@@ -1276,12 +712,10 @@ class GraphBuilder:
             entities = await self.processor.extract_entities(full_text[:3000])
 
             # Create Case entities and relationships
-            for case_name in entities.get("cases", [])[
-                :10
-            ]:  # Limit to prevent explosion
+            for case_name in entities.get("cases", [])[:10]:  # Limit to prevent explosion
                 if case_name and len(case_name.strip()) > 5:
-                    case_citation = self._extract_citation_from_name(case_name)
-                    year = self._extract_year_from_citation(case_citation)
+                    case_citation = extract_citation_from_name(case_name)
+                    year = extract_year_from_citation(case_citation)
 
                     create_case_query = """
                     MERGE (case:Case {citation: $citation})
@@ -1293,7 +727,7 @@ class GraphBuilder:
                     MERGE (d)-[:CITES]->(case)
                     """
 
-                    self.neo4j.execute_write_query(
+                    await self.neo4j.execute_write_query(
                         create_case_query,
                         {
                             "citation": case_citation,
@@ -1314,7 +748,7 @@ class GraphBuilder:
                     MERGE (d)-[:REFERENCES_STATUTE]->(s)
                     """
 
-                    self.neo4j.execute_write_query(
+                    await self.neo4j.execute_write_query(
                         create_statute_query,
                         {"reference": statute_ref.strip(), "source": source},
                     )
@@ -1322,8 +756,8 @@ class GraphBuilder:
             # Create Court entities
             for court_name in entities.get("courts", [])[:5]:
                 if court_name and len(court_name.strip()) > 3:
-                    jurisdiction = self._infer_jurisdiction(court_name)
-                    level = self._infer_court_level(court_name)
+                    jurisdiction = infer_jurisdiction(court_name)
+                    level = infer_court_level(court_name)
 
                     create_court_query = """
                     MERGE (court:Court {name: $name})
@@ -1335,7 +769,7 @@ class GraphBuilder:
                     MERGE (d)-[:HEARD_IN]->(court)
                     """
 
-                    self.neo4j.execute_write_query(
+                    await self.neo4j.execute_write_query(
                         create_court_query,
                         {
                             "name": court_name.strip(),
@@ -1356,7 +790,7 @@ class GraphBuilder:
                     MERGE (d)-[:DISCUSSES]->(lc)
                     """
 
-                    self.neo4j.execute_write_query(
+                    await self.neo4j.execute_write_query(
                         create_concept_query,
                         {"name": concept.strip(), "source": source},
                     )
@@ -1372,7 +806,7 @@ class GraphBuilder:
                     MERGE (j)-[:AUTHORED]->(d)
                     """
 
-                    self.neo4j.execute_write_query(
+                    await self.neo4j.execute_write_query(
                         create_judge_query,
                         {"name": judge_name.strip(), "source": source},
                     )
@@ -1393,7 +827,7 @@ class GraphBuilder:
             MATCH (d:Document {source: $source})
             RETURN d.year as year
             """
-            result = self.neo4j.execute_query(
+            result = await self.neo4j.execute_query(
                 current_doc_query, {"source": current_source}
             )
 
@@ -1404,8 +838,8 @@ class GraphBuilder:
 
             # For each cited case, create appropriate relationships
             for cited_case in cited_cases[:5]:  # Limit to prevent explosion
-                citation = self._extract_citation_from_name(cited_case)
-                cited_year = self._extract_year_from_citation(citation)
+                citation = extract_citation_from_name(cited_case)
+                cited_year = extract_year_from_citation(citation)
 
                 if cited_year and cited_year < current_year:
                     # Current case follows the older case
@@ -1415,73 +849,13 @@ class GraphBuilder:
                     MERGE (current)-[:FOLLOWS {weight: 1.0}]->(cited)
                     """
 
-                    self.neo4j.execute_write_query(
+                    await self.neo4j.execute_write_query(
                         follow_query,
                         {"current_source": current_source, "cited_citation": citation},
                     )
 
         except Exception as e:
             logger.warning(f"Error creating temporal relationships: {e}")
-
-    def _extract_citation_from_name(self, case_name: str) -> str:
-        """Extract formal citation from case name."""
-        import re
-
-        # Look for patterns like [2019] SGCA 42
-        citation_match = re.search(r"\[(\d{4})\]\s*([A-Z]+)\s*(\d+)", case_name)
-        if citation_match:
-            return f"[{citation_match.group(1)}] {citation_match.group(2)} {citation_match.group(3)}"
-        return case_name.strip()[:100]  # Fallback to truncated name
-
-    def _extract_year_from_citation(self, citation: str) -> Optional[int]:
-        """Extract year from citation."""
-        import re
-
-        year_match = re.search(r"\[?(\d{4})\]?", citation)
-        if year_match:
-            return int(year_match.group(1))
-        return None
-
-    def _infer_jurisdiction(self, court_name: str) -> str:
-        """Infer jurisdiction from court name."""
-        court_lower = court_name.lower()
-        if any(keyword in court_lower for keyword in ["singapore", "sgca", "sghc"]):
-            return "Singapore"
-        elif any(
-            keyword in court_lower
-            for keyword in ["england", "uk", "house of lords", "uksc"]
-        ):
-            return "United Kingdom"
-        elif any(keyword in court_lower for keyword in ["australia", "hca"]):
-            return "Australia"
-        elif any(keyword in court_lower for keyword in ["canada", "scc"]):
-            return "Canada"
-        return "Unknown"
-
-    def _infer_court_level(self, court_name: str) -> str:
-        """Infer court level from court name."""
-        court_lower = court_name.lower()
-        if any(
-            keyword in court_lower
-            for keyword in ["supreme", "court of appeal", "sgca", "hca"]
-        ):
-            return "Appellate"
-        elif any(keyword in court_lower for keyword in ["high court", "sghc"]):
-            return "Superior"
-        elif any(keyword in court_lower for keyword in ["district", "magistrate"]):
-            return "Lower"
-        return "Unknown"
-
-    def _determine_document_type(self, pdf_path: Path) -> str:
-        """Determine document type based on filename and content."""
-
-        # if the folder of the file is named "cases", then it is a case document
-        if "cases" in str(pdf_path.parent).lower():
-            return "Case"
-        elif "doctrines" in str(pdf_path.parent).lower():
-            return "Doctrine"
-
-        return "Document"
 
 
 async def main():
@@ -1519,11 +893,11 @@ async def main():
         sys.exit(1)
 
     # Set up Neo4j connection
-    neo4j_conn = Neo4jConnection()
+    neo4j_conn = Neo4jConnection(perf_tracker)
 
     try:
         # Test connection
-        neo4j_conn.execute_query("RETURN 1")
+        await neo4j_conn.execute_query("RETURN 1")
         logger.info("✅ Successfully connected to Neo4j")
     except Exception as e:
         logger.error(f"❌ Failed to connect to Neo4j: {e}")
@@ -1536,14 +910,14 @@ async def main():
     # Handle cache management
     if use_cache and args.clear_cache:
         logger.info("🗑️  Clearing LLM cache...")
-        graph_builder.processor.llm_cache.clear_cache()
+        graph_builder.processor.cache.clear_cache()
 
     # Reset database if requested
     if args.reset:
-        graph_builder.reset_database()
+        await graph_builder.reset_database()
 
     # Setup schema
-    graph_builder.setup_database_schema()
+    await graph_builder.setup_database_schema()
 
     # Find PDF files to process
     docs_dir = Path(args.docs_dir)
@@ -1588,11 +962,11 @@ async def main():
     )
 
     # Print performance summary
-    llm_cache = graph_builder.processor.llm_cache if use_cache else None
+    llm_cache = graph_builder.processor.cache if use_cache else None
     perf_tracker.print_summary(llm_cache)
 
     # Close connection
-    neo4j_conn.close()
+    await neo4j_conn.close()
     logger.info("🔌 Neo4j connection closed")
 
 
