@@ -167,12 +167,6 @@ const StreamingProgressModal: React.FC<StreamingProgressModalProps> = ({
     }
   };
 
-  const getProgressPercentage = () => {
-    if (processedSteps.length === 0) return 0;
-    const completedSteps = processedSteps.filter(step => step.status === 'completed').length;
-    return Math.round((completedSteps / processedSteps.length) * 100);
-  };
-
   const formatElapsedTime = (elapsedMs: number) => {
     if (elapsedMs < 1000) {
       return `${elapsedMs}ms`;
@@ -212,26 +206,9 @@ const StreamingProgressModal: React.FC<StreamingProgressModalProps> = ({
                 <h2 className="text-xl font-semibold text-gray-900">
                   {isStreaming ? title : error ? 'Failed' : 'Complete'}
                 </h2>
-                {isStreaming && processedSteps.length > 0 && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    {getProgressPercentage()}% complete
-                  </p>
-                )}
               </div>
             </div>
           </div>
-
-          {/* Progress Bar */}
-          {isStreaming && processedSteps.length > 0 && (
-            <div className="px-6 pt-4">
-              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                <div 
-                  className="bg-primary h-2 rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${getProgressPercentage()}%` }}
-                />
-              </div>
-            </div>
-          )}
 
           {/* Content */}
           <div className="p-6 max-h-96 overflow-y-auto">
