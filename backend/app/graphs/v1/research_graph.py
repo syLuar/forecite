@@ -37,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize LLM using the config for research
-task_config = settings.llm_config.get("main", {}).get("research", {})
+task_config = settings.llm_config.get("main", {}).get("research_graph", {})
 llm = create_llm(task_config)
 
 

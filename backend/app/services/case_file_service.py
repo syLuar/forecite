@@ -10,13 +10,15 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.core.database import get_db_context
-from app.models.database_models import CaseFile, CaseFileDocument, ArgumentDraft, MootCourtSession
+from app.models.database_models import CaseFile, CaseFileDocument, ArgumentDraft, MootCourtSession, CaseFileNote
 from app.models.schemas import (
     CaseFile as CaseFileSchema,
     CaseFileDocument as CaseFileDocumentSchema,
     ArgumentDraftResponse,
 )
 from app.tools.neo4j_tools import get_chunk_by_id
+from datetime import datetime
+import logging
 
 import logging
 from datetime import datetime
@@ -119,6 +121,19 @@ class CaseFileService:
                         "added_at": doc.added_at,
                     }
                     for doc in case_file.documents
+                ],
+                "notes": [
+                    {
+                        "id": note.id,
+                        "content": note.content,
+                        "author_type": note.author_type,
+                        "author_name": note.author_name,
+                        "note_type": note.note_type,
+                        "tags": note.tags or [],
+                        "created_at": note.created_at,
+                        "updated_at": note.updated_at,
+                    }
+                    for note in case_file.notes
                 ],
                 "total_documents": len(case_file.documents),
             }
@@ -238,6 +253,26 @@ class CaseFileService:
 
             db.delete(document)
             return True
+            
+    @staticmethod
+    def remove_all_documents_from_case_file(case_file_id: int) -> int:
+        """Remove all documents from a case file.
+        
+        Returns:
+            Number of documents removed
+        """
+        with get_db_context() as db:
+            # Query to get the count before deletion
+            document_count = db.query(CaseFileDocument).filter(
+                CaseFileDocument.case_file_id == case_file_id
+            ).count()
+            
+            # Delete all documents for this case file
+            db.query(CaseFileDocument).filter(
+                CaseFileDocument.case_file_id == case_file_id
+            ).delete()
+            
+            return document_count
 
     @staticmethod
     def get_document_from_case_file(
@@ -642,3 +677,175 @@ class MootCourtSessionService:
         except Exception as e:
             logger.error(f"Error updating moot court session {session_id}: {e}")
             return False
+
+
+class CaseFileNoteService:
+    """Service for managing case file notes."""
+
+    @staticmethod
+    def add_note(
+        case_file_id: int,
+        content: str,
+        author_type: str,
+        author_name: Optional[str] = None,
+        note_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> Optional[int]:
+        """
+        Add a note to a case file.
+        
+        Args:
+            case_file_id: ID of the case file
+            content: Content of the note
+            author_type: Type of author ('user' or 'ai')
+            author_name: Optional name/identifier for the author
+            note_type: Optional type of note ('research', 'strategy', 'fact', 'reminder', etc.)
+            tags: Optional tags for organization
+            
+        Returns:
+            ID of the created note, or None if failed
+        """
+        try:
+            with get_db_context() as db:
+                # Check if case file exists
+                case_file = db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+                if not case_file:
+                    logger.warning(f"Case file {case_file_id} not found")
+                    return None
+
+                note = CaseFileNote(
+                    case_file_id=case_file_id,
+                    content=content,
+                    author_type=author_type,
+                    author_name=author_name,
+                    note_type=note_type,
+                    tags=tags or [],
+                )
+                db.add(note)
+                db.flush()
+                
+                logger.info(f"Added note {note.id} to case file {case_file_id}")
+                return note.id
+
+        except Exception as e:
+            logger.error(f"Error adding note to case file {case_file_id}: {e}")
+            return None
+
+    @staticmethod
+    def update_note(
+        note_id: int,
+        content: str,
+        note_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        author_type_restriction: Optional[str] = None,
+    ) -> bool:
+        """
+        Update an existing note.
+        
+        Args:
+            note_id: ID of the note to update
+            content: Updated content
+            note_type: Updated note type
+            tags: Updated tags
+            author_type_restriction: If provided, only allow updates to notes with this author_type
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with get_db_context() as db:
+                note = db.query(CaseFileNote).filter(CaseFileNote.id == note_id).first()
+                
+                if not note:
+                    logger.warning(f"Note {note_id} not found")
+                    return False
+                
+                # Check author type restriction (for security)
+                if author_type_restriction and note.author_type != author_type_restriction:
+                    logger.warning(f"Update denied: note {note_id} has author_type '{note.author_type}', but restriction requires '{author_type_restriction}'")
+                    return False
+
+                note.content = content
+                if note_type is not None:
+                    note.note_type = note_type
+                if tags is not None:
+                    note.tags = tags
+                
+                logger.info(f"Updated note {note_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error updating note {note_id}: {e}")
+            return False
+
+    @staticmethod
+    def delete_note(note_id: int, author_type_restriction: Optional[str] = None) -> bool:
+        """
+        Delete a note.
+        
+        Args:
+            note_id: ID of the note to delete
+            author_type_restriction: If provided, only allow deletion of notes with this author_type
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with get_db_context() as db:
+                note = db.query(CaseFileNote).filter(CaseFileNote.id == note_id).first()
+                
+                if not note:
+                    logger.warning(f"Note {note_id} not found")
+                    return False
+                
+                # Check author type restriction (for security)
+                if author_type_restriction and note.author_type != author_type_restriction:
+                    logger.warning(f"Delete denied: note {note_id} has author_type '{note.author_type}', but restriction requires '{author_type_restriction}'")
+                    return False
+
+                db.delete(note)
+                
+                logger.info(f"Deleted note {note_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error deleting note {note_id}: {e}")
+            return False
+
+    @staticmethod
+    def get_notes_for_case_file(case_file_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all notes for a case file.
+        
+        Args:
+            case_file_id: ID of the case file
+            
+        Returns:
+            List of notes
+        """
+        try:
+            with get_db_context() as db:
+                notes = (
+                    db.query(CaseFileNote)
+                    .filter(CaseFileNote.case_file_id == case_file_id)
+                    .order_by(CaseFileNote.created_at.desc())
+                    .all()
+                )
+
+                return [
+                    {
+                        "id": note.id,
+                        "content": note.content,
+                        "author_type": note.author_type,
+                        "author_name": note.author_name,
+                        "note_type": note.note_type,
+                        "tags": note.tags or [],
+                        "created_at": note.created_at,
+                        "updated_at": note.updated_at,
+                    }
+                    for note in notes
+                ]
+
+        except Exception as e:
+            logger.error(f"Error getting notes for case file {case_file_id}: {e}")
+            return []

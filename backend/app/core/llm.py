@@ -4,6 +4,10 @@ LLM Initialization and Configuration Module
 This module provides a centralized way to initialize LLMs with different providers
 (Google Gemini, OpenAI, etc.) based on configuration. It abstracts away provider-specific
 initialization logic and provides a consistent interface.
+
+Supports two modes of LLM configuration:
+1. Graph-level: Single LLM config for all nodes in a graph
+2. Node-level: Individual LLM configs for specific nodes within a graph
 """
 
 import logging
@@ -155,4 +159,71 @@ def create_custom_llm(
         **kwargs
     }
     
+    return create_llm(config)
+
+
+def get_llm_config_for_path(
+    config_path: str, 
+    fallback_config: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Get LLM configuration for a specific config path, with optional fallback.
+    
+    Args:
+        config_path: Dot-separated path in config (e.g., 'main.drafting', 'main.drafting.nodes.fact_analyzer_node')
+        fallback_config: Optional fallback configuration if specific path not found
+        
+    Returns:
+        Dict containing LLM configuration for the specified path
+        
+    Raises:
+        LLMError: If no configuration is found and no fallback provided
+    """
+    try:
+        # Navigate through the config using the path
+        config = settings.llm_config
+        path_parts = config_path.split('.')
+        
+        for part in path_parts:
+            if part in config:
+                config = config[part]
+            else:
+                if fallback_config:
+                    logger.info(f"Config path '{config_path}' not found, using fallback")
+                    return fallback_config.copy()
+                else:
+                    raise LLMError(f"Configuration path '{config_path}' not found")
+        
+        # Remove nested 'nodes' section if present in final config
+        final_config = config.copy() if isinstance(config, dict) else {}
+        final_config.pop("nodes", None)
+        
+        return final_config
+        
+    except Exception as e:
+        if fallback_config:
+            logger.warning(f"Error getting config for path '{config_path}': {str(e)}, using fallback")
+            return fallback_config.copy()
+        else:
+            raise LLMError(f"Failed to get LLM config for path '{config_path}': {str(e)}") from e
+
+
+def create_llm_from_config_path(
+    config_path: str, 
+    fallback_config: Optional[Dict[str, Any]] = None
+) -> BaseChatModel:
+    """
+    Create an LLM instance from a configuration path.
+    
+    Args:
+        config_path: Dot-separated path in config (e.g., 'main.drafting.nodes.fact_analyzer_node')
+        fallback_config: Optional fallback configuration if specific path not found
+        
+    Returns:
+        Initialized LLM instance
+        
+    Raises:
+        LLMError: If configuration is invalid or LLM creation fails
+    """
+    config = get_llm_config_for_path(config_path, fallback_config)
     return create_llm(config)

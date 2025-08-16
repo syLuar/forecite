@@ -20,6 +20,7 @@ import os
 
 from app.core.config import settings
 from app.core.llm import create_llm
+from ..llm_helper import create_graph_llm_helper
 from .state import (
     CounterArgumentState,
     CounterArgumentSeed,
@@ -42,9 +43,8 @@ from ...tools.neo4j_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize LLM using the config for counterargument
-task_config = settings.llm_config.get("main", {}).get("counterargument", {})
-llm = create_llm(task_config)
+# Graph LLM helper
+llm_helper = create_graph_llm_helper("counterargument_graph")
 
 
 # Simplified Pydantic models for structured output
@@ -112,6 +112,9 @@ async def query_generator_node(state: CounterArgumentState) -> CounterArgumentSt
     key_arguments = state["key_arguments"]
     user_facts = state["user_facts"]
     party_represented = state.get("party_represented", "")
+    
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("query_generator_node")
     
     # Create structured LLM for query generation
     structured_llm = llm.with_structured_output(SearchQueryOutput)
@@ -291,6 +294,9 @@ async def vulnerability_analysis_node(state: CounterArgumentState) -> CounterArg
     retrieved_docs = state.get("retrieved_docs", [])
     party_represented = state.get("party_represented", "")
     
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("vulnerability_analysis_node")
+    
     # Create structured LLM for vulnerability assessment
     structured_llm = llm.with_structured_output(VulnerabilityAssessmentOutput)
     
@@ -403,6 +409,9 @@ async def challenge_identifier_node(state: CounterArgumentState) -> CounterArgum
     vulnerability_assessments = state.get("vulnerability_assessments", [])
     key_arguments = state["key_arguments"]
     
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("challenge_identifier_node")
+    
     # Create structured LLM for seed generation
     structured_llm = llm.with_structured_output(CounterArgumentSeedOutput)
     
@@ -495,6 +504,9 @@ async def counterargument_developer_node(state: CounterArgumentState) -> Counter
     key_arguments = state["key_arguments"]
     user_facts = state["user_facts"]
     party_represented = state.get("party_represented", "")
+    
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("counterargument_developer_node")
     
     # Create structured LLM for counterargument development
     structured_llm = llm.with_structured_output(SingleCounterArgumentOutput)
@@ -615,6 +627,9 @@ async def rebuttal_generator_node(state: CounterArgumentState) -> CounterArgumen
     counterarguments = state.get("generated_counterarguments", [])
     key_arguments = state["key_arguments"]
     party_represented = state.get("party_represented", "")
+    
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("rebuttal_generator_node")
     
     # Create structured LLM for rebuttal generation
     structured_llm = llm.with_structured_output(SingleRebuttalOutput)

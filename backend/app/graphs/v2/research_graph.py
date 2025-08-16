@@ -20,6 +20,7 @@ import os
 
 from app.core.config import settings
 from app.core.llm import create_llm
+from ..llm_helper import create_graph_llm_helper
 from .state import (
     ResearchState, 
     QueryAnalysis, 
@@ -39,9 +40,8 @@ from ...tools.neo4j_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize LLM using the config for research
-task_config = settings.llm_config.get("main", {}).get("research", {})
-llm = create_llm(task_config)
+# Graph LLM helper
+llm_helper = create_graph_llm_helper("research_graph")
 
 
 # Simplified Pydantic models for structured output
@@ -115,6 +115,9 @@ async def query_analyzer_node(state: ResearchState) -> ResearchState:
 
     query_text = state["query_text"]
 
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("query_analyzer_node")
+
     # Create structured LLM for focused task
     structured_llm = llm.with_structured_output(QueryAnalysisOutput)
 
@@ -181,6 +184,9 @@ async def strategy_selector_node(state: ResearchState) -> ResearchState:
 
     query_analysis = state.get("query_analysis", {})
     refinement_count = state.get("refinement_count", 0)
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("strategy_selector_node")
 
     # Create structured LLM for strategy selection
     structured_llm = llm.with_structured_output(SearchStrategyOutput)
@@ -259,6 +265,9 @@ async def filter_builder_node(state: ResearchState) -> ResearchState:
     logger.info("Executing FilterBuilderNode")
 
     query_analysis = state.get("query_analysis", {})
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("filter_builder_node")
 
     # Create structured LLM for filter building
     structured_llm = llm.with_structured_output(SearchFiltersOutput)
@@ -354,6 +363,9 @@ async def query_preparation_node(state: ResearchState) -> ResearchState:
     strategy = search_strategy.get("strategy", "semantic")
     key_concepts = query_analysis.get("key_concepts", [])
     
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("query_preparation_node")
+    
     # Create structured LLM for query preparation
     structured_llm = llm.with_structured_output(QueryPreparationOutput)
     
@@ -423,7 +435,7 @@ async def search_execution_node(state: ResearchState) -> ResearchState:
 
     # Get prepared query and parameters
     prepared_query = state.get("prepared_query", state["query_text"])
-    search_parameters = state.get("search_parameters", {"limit": 15, "min_score": 0.6})
+    search_parameters = state.get("search_parameters", {"limit": 100, "min_score": 0.6})
     execution_strategy = state.get("execution_strategy", "semantic")
     search_filters = state.get("search_filters", {})
     
@@ -616,6 +628,9 @@ async def refine_analyzer_node(state: ResearchState) -> ResearchState:
     query_analysis = state.get("query_analysis", {})
     quality_assessment = state.get("quality_assessment", {})
     search_history = state.get("search_history", [])
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("refine_analyzer_node")
 
     # Create structured LLM for refinement analysis
     structured_llm = llm.with_structured_output(RefinementSuggestionOutput)

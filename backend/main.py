@@ -19,6 +19,8 @@ from google import genai
 import json
 import asyncio
 
+from langgraph.errors import GraphRecursionError
+
 # from app.core.config import settings  # Uncomment when needed
 from app.models.schemas import (
     ResearchQueryRequest,
@@ -33,6 +35,8 @@ from app.models.schemas import (
     CaseFileResponse,
     CaseFileListItem,
     AddDocumentToCaseFileRequest,
+    AddCaseFileNoteRequest,
+    UpdateCaseFileNoteRequest,
     SaveDraftRequest,
     ArgumentDraftListItem,
     SavedArgumentDraft,
@@ -45,8 +49,10 @@ from app.models.schemas import (
     SaveMootCourtSessionRequest,
     MootCourtSessionListItem,
     SavedMootCourtSession,
+    ConductResearchRequest,
+    ConductResearchResponse,
 )
-from app.graphs import research_graph, drafting_graph, counterargument_graph, ResearchState, DraftingState, CounterArgumentState
+from app.graphs import research_graph, drafting_graph, counterargument_graph, research_agent, ResearchState, DraftingState, CounterArgumentState
 from app.tools.neo4j_tools import close_neo4j_connection
 from app.services.case_file_service import CaseFileService, ArgumentDraftService, MootCourtSessionService
 from app.core.database import create_tables
@@ -220,6 +226,105 @@ async def research_query(request: ResearchQueryRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Research query failed: {str(e)}",
+        )
+
+
+@app.post("/api/v1/research/conduct-research", response_model=ConductResearchResponse)
+async def conduct_research(request: ConductResearchRequest):
+    """
+    Conduct comprehensive legal research using the Research Agent.
+
+    This endpoint uses the Legal Research Agent to systematically research legal issues,
+    find relevant authorities, and organize findings in the case file. The agent will
+    add discovered documents and research notes to the specified case file.
+    """
+    start_time = time.time()
+
+    try:
+        logger.info(f"Starting research agent for case file ID: {request.case_file_id}")
+
+        # Get the case file to validate it exists and retrieve facts
+        case_file_data = CaseFileService.get_case_file(request.case_file_id)
+        if not case_file_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case file {request.case_file_id} not found",
+            )
+
+        # Extract case facts
+        case_facts = case_file_data.get('user_facts', '')
+        if not case_facts or not case_facts.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Case file must contain case facts before conducting research",
+            )
+
+        party_represented = case_file_data.get('party_represented', '')
+        
+        # Handle optional legal issues
+        legal_issues = request.legal_issues or []
+        issue_count_text = f"{len(legal_issues)} legal issues" if legal_issues else "AI-identified legal issues"
+        logger.info(f"Conducting research for {issue_count_text}")
+
+        # Define response processor for streaming
+        async def process_research_response(research_notes):
+            execution_time = time.time() - start_time
+
+            # Get updated case file to count added documents and notes
+            updated_case_file = CaseFileService.get_case_file(request.case_file_id)
+            original_doc_count = len(case_file_data.get('documents', []))
+            original_note_count = len(case_file_data.get('notes', []))
+            new_doc_count = len(updated_case_file.get('documents', []))
+            new_note_count = len(updated_case_file.get('notes', []))
+            
+            documents_added = max(0, new_doc_count - original_doc_count)
+            notes_added = max(0, new_note_count - original_note_count)
+
+            response = ConductResearchResponse(
+                documents_added=documents_added,
+                notes_added=notes_added,
+                legal_issues_researched=legal_issues,
+                execution_time=execution_time,
+                jurisdiction=request.jurisdiction or "Singapore"
+            )
+            return response.model_dump()
+
+        initial_state = research_agent.get_initial_state(
+            case_file_id=request.case_file_id,
+            case_facts=case_facts,
+            party_represented=party_represented,
+            legal_issues=legal_issues if legal_issues else None,
+            jurisdiction=request.jurisdiction or "Singapore",
+        )
+
+        # Handle streaming vs non-streaming execution
+        if request.stream:
+            logger.info("Starting streaming research agent execution")
+            return create_streaming_response(
+                stream_graph_with_final_response(
+                    research_agent.get_agent_executor(), initial_state, process_research_response, config={"recursion_limit": 60}
+                )
+            )
+
+        # Execute the research agent
+        final_state = await research_agent.ainvoke(initial_state)
+
+        # Use the same processing logic
+        response_dict = await process_research_response(final_state)
+        response = ConductResearchResponse(**response_dict)
+
+        logger.info(
+            f"Research completed in {response.execution_time:.2f}s"
+        )
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in research agent: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Research failed: {str(e)}",
         )
 
 
@@ -577,6 +682,35 @@ async def remove_document_from_case_file(case_file_id: int, document_id: str):
         )
 
 
+@app.delete("/api/v1/case-files/{case_file_id}/documents")
+async def remove_all_documents_from_case_file(case_file_id: int):
+    """Remove all documents from a case file."""
+    try:
+        # Check if the case file exists first
+        case_file = CaseFileService.get_case_file(case_file_id)
+        if not case_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case file {case_file_id} not found",
+            )
+        
+        # Delete all documents
+        removed_count = CaseFileService.remove_all_documents_from_case_file(case_file_id)
+        
+        return {"success": True, "removed_count": removed_count}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error removing all documents from case file {case_file_id}: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove all documents from case file: {str(e)}",
+        )
+
+
 @app.get("/api/v1/case-files/{case_file_id}/documents/{document_id}")
 async def get_document_details(case_file_id: int, document_id: str):
     """Get detailed information about a specific document in a case file."""
@@ -603,6 +737,101 @@ async def get_document_details(case_file_id: int, document_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get document details: {str(e)}",
+        )
+
+
+# Case File Notes Management Endpoints
+@app.post("/api/v1/case-files/{case_file_id}/notes", response_model=Dict[str, int])
+async def add_note_to_case_file(
+    case_file_id: int, request: AddCaseFileNoteRequest
+):
+    """Add a note to a case file."""
+    try:
+        from app.services.case_file_service import CaseFileNoteService
+        
+        note_id = CaseFileNoteService.add_note(
+            case_file_id=case_file_id,
+            content=request.content,
+            author_type=request.author_type,
+            author_name=request.author_name,
+            note_type=request.note_type,
+            tags=request.tags,
+        )
+
+        if not note_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Case file not found",
+            )
+
+        return {"note_id": note_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding note to case file {case_file_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add note: {str(e)}",
+        )
+
+
+@app.put("/api/v1/case-files/{case_file_id}/notes/{note_id}")
+async def update_case_file_note(
+    case_file_id: int, note_id: int, request: UpdateCaseFileNoteRequest
+):
+    """Update a note in a case file."""
+    try:
+        from app.services.case_file_service import CaseFileNoteService
+        
+        success = CaseFileNoteService.update_note(
+            note_id=note_id,
+            content=request.content,
+            note_type=request.note_type,
+            tags=request.tags,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Note not found",
+            )
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating note {note_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update note: {str(e)}",
+        )
+
+
+@app.delete("/api/v1/case-files/{case_file_id}/notes/{note_id}")
+async def delete_case_file_note(case_file_id: int, note_id: int):
+    """Delete a note from a case file."""
+    try:
+        from app.services.case_file_service import CaseFileNoteService
+        
+        success = CaseFileNoteService.delete_note(note_id=note_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Note not found",
+            )
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting note {note_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete note: {str(e)}",
         )
 
 
@@ -1230,7 +1459,7 @@ async def get_citation_network(case_citation: str, direction: str = "both"):
 
 
 # Streaming helper function
-async def stream_graph_with_final_response(graph, initial_state, response_processor, chunk_processor=None, stream_mode=["values", "custom"]):
+async def stream_graph_with_final_response(graph, initial_state, response_processor, chunk_processor=None, stream_mode=["values", "custom"], config=None):
     """
     Stream the execution of a LangGraph and send a final processed response.
     
@@ -1242,6 +1471,10 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
         stream_mode: Stream mode for the graph execution
     """
     final_state = None
+
+    if config is None:
+        config = {}
+
     if chunk_processor is None:
         async def chunk_processor(chunk, stream_mode):
             def process_chunk(chunk_dict):
@@ -1267,13 +1500,16 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
             return processed_chunk
             
     # Stream the graph execution
-    async for chunk in graph.astream(initial_state, stream_mode=stream_mode):
-        yield f"data: {json.dumps(await chunk_processor(chunk, stream_mode), default=str)}\n\n"
-        # Keep track of the final state
-        if isinstance(chunk, tuple):
-            _stream_type, chunk = chunk
-        if isinstance(chunk, dict):
-            final_state = chunk
+    try:
+        async for chunk in graph.astream(initial_state, config, stream_mode=stream_mode):
+            yield f"data: {json.dumps(await chunk_processor(chunk, stream_mode), default=str)}\n\n"
+            # Keep track of the final state
+            if isinstance(chunk, tuple):
+                _stream_type, chunk = chunk
+            if isinstance(chunk, dict):
+                final_state = chunk
+    except GraphRecursionError as e:
+        pass
     
     # Process the final response
     if final_state and response_processor:

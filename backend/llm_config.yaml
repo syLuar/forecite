@@ -5,34 +5,78 @@ embeddings:
 
 ingestion:
   entity_extraction: 
-    model: "gemini-2.5-flash-lite"
+    model: "gpt-5-nano"
     temperature: 0.2
     thinking_budget: 0
-    model_provider: "google"
+    model_provider: "openai"
   summary_generation: 
-    model: "gemini-2.5-flash-lite"
-    temperature: 0.2
-    thinking_budget: 0
-    model_provider: "google"
-  metadata_extraction: 
-    model: "gemini-2.5-flash-lite"
-    temperature: 0.2
-    thinking_budget: 0
-    model_provider: "google"
-
-main:
-  drafting: 
-    model: "gemini-2.5-flash-lite"
-    temperature: 0.2
-    thinking_budget: 0
-    model_provider: "google"
-  research: 
-    model: "gemini-2.5-flash-lite"
-    temperature: 0.2
-    thinking_budget: 0
-    model_provider: "google"
-  counterargument: 
     model: "gpt-5-mini"
     temperature: 0.2
     thinking_budget: 0
     model_provider: "openai"
+  metadata_extraction: 
+    model: "gpt-5-nano"
+    temperature: 0.2
+    thinking_budget: 0
+    model_provider: "openai"
+
+main:
+  drafting_graph: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0
+    model_provider: "google"
+    # Example: per-node configuration - uncomment to enable different LLMs per node
+    nodes:
+    #   fact_analyzer_node:
+    #     model: "gemini-2.5-flash-lite"
+    #     temperature: 0.1
+    #     model_provider: "google"
+    #   strategy_developer_node:
+    #     model: "gpt-4o"
+    #     temperature: 0.3
+    #     model_provider: "openai"
+      final_drafter_node:
+        model: "gemini-2.5-flash"  # Use stronger model for critical assessment
+        temperature: 0.5
+        thinking_budget: 200
+        model_provider: "google"
+  research_graph: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0
+    model_provider: "google"
+    # Example: per-node configuration for research workflow
+    # nodes:
+    #   query_analyzer_node:
+    #     model: "gpt-4o"
+    #     temperature: 0.1
+    #     model_provider: "openai"
+    #   refine_analyzer_node:
+    #     model: "gemini-2.5-flash-lite"
+    #     temperature: 0.3
+    #     model_provider: "google"
+  counterargument_graph: 
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    thinking_budget: 0
+    model_provider: "google"
+    nodes:
+    #   vulnerability_analysis_node:
+    #     model: "gemini-2.5-flash-lite"  # Creative thinking for finding vulnerabilities
+    #     temperature: 0.3
+    #     model_provider: "google"
+    #   counterargument_developer_node:
+    #     model: "gpt-4o"  # Strong reasoning for developing arguments
+    #     temperature: 0.2
+    #     model_provider: "openai"
+      rebuttal_generator_node:
+        model: "gemini-2.5-flash"  # Strong reasoning for rebuttals
+        thinking_budget: 200
+        temperature: 0.2
+        model_provider: "google"
+  research_agent:
+    model: "gemini-2.5-flash"
+    temperature: 0.2
+    thinking_budget: 0
+    model_provider: "google"

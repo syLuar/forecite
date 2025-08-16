@@ -197,6 +197,19 @@ class CitationNetwork(BaseModel):
 
 
 # Case File Management Models
+class CaseFileNote(BaseModel):
+    """Model for a case file note."""
+    
+    id: int
+    content: str
+    author_type: str = Field(..., description="Type of author: 'user' or 'ai'")
+    author_name: Optional[str] = Field(None, description="Optional name/identifier for the author")
+    note_type: Optional[str] = Field(None, description="Type of note: 'research', 'strategy', 'fact', 'reminder', etc.")
+    tags: Optional[List[str]] = Field(None, description="Optional tags for organization")
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
 class CreateCaseFileRequest(BaseModel):
     """Request model for creating a new case file."""
 
@@ -226,6 +239,7 @@ class CaseFileResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     documents: List[Dict[str, Any]] = []
+    notes: List[CaseFileNote] = []
     total_documents: int
 
 
@@ -330,6 +344,25 @@ class CounterArgumentRebuttal(BaseModel):
     authority: str
 
 
+# Case File Notes Models
+class AddCaseFileNoteRequest(BaseModel):
+    """Request model for adding a note to a case file."""
+    
+    content: str = Field(..., description="Content of the note")
+    author_type: str = Field(..., description="Type of author: 'user' or 'ai'")
+    author_name: Optional[str] = Field(None, description="Optional name/identifier for the author")
+    note_type: Optional[str] = Field(None, description="Type of note: 'research', 'strategy', 'fact', 'reminder', etc.")
+    tags: Optional[List[str]] = Field(None, description="Optional tags for organization")
+
+
+class UpdateCaseFileNoteRequest(BaseModel):
+    """Request model for updating a case file note."""
+    
+    content: str = Field(..., description="Updated content of the note")
+    note_type: Optional[str] = Field(None, description="Updated type of note")
+    tags: Optional[List[str]] = Field(None, description="Updated tags for organization")
+
+
 class GenerateCounterArgumentsRequest(BaseModel):
     """Request model for generating counterarguments."""
     
@@ -392,4 +425,24 @@ class SavedMootCourtSession(BaseModel):
     rebuttal_quality: Optional[float] = None
     execution_time: Optional[float] = None
     created_at: datetime
+
+
+# Research Agent API Models
+class ConductResearchRequest(BaseModel):
+    """Request model for conducting legal research using the research agent."""
+    
+    case_file_id: int = Field(..., description="ID of the case file to organize research in")
+    legal_issues: Optional[List[str]] = Field(None, description="Optional list of legal issues to research. If not provided, AI will identify issues from case facts.")
+    jurisdiction: Optional[str] = Field("Singapore", description="Relevant jurisdiction")
+    stream: Optional[bool] = Field(False, description="Enable streaming responses")
+
+
+class ConductResearchResponse(BaseModel):
+    """Response model for legal research endpoint."""
+    
+    documents_added: int = Field(..., description="Number of documents added to case file")
+    notes_added: int = Field(..., description="Number of research notes added to case file") 
+    legal_issues_researched: List[str] = Field(..., description="Legal issues that were researched")
+    execution_time: Optional[float] = Field(None, description="Time taken to complete research")
+    jurisdiction: str = Field(..., description="Jurisdiction researched")
 

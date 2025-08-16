@@ -21,6 +21,7 @@ import os
 
 from app.core.config import settings
 from app.core.llm import create_llm
+from ..llm_helper import create_graph_llm_helper
 from .state import (
     DraftingState, 
     LegalIssueAnalysis, 
@@ -41,9 +42,8 @@ from ...tools.neo4j_tools import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize LLM using the config for drafting
-task_config = settings.llm_config.get("main", {}).get("drafting", {})
-llm = create_llm(task_config)
+# Graph LLM helper
+llm_helper = create_graph_llm_helper("drafting_graph")
 
 
 # Simplified Pydantic models for structured output
@@ -92,80 +92,20 @@ class ContentRevisionOutput(BaseModel):
 # Decomposed node functions
 async def fact_analyzer_node(state: DraftingState) -> DraftingState:
     """
-    Analyze facts and identify legal issues.
+    Node that analyzes the facts and identifies legal issues.
     
-    This focused node only analyzes facts - no strategy development.
+    This is the first node in the pipeline and sets up the foundation
+    for the legal argument by analyzing the factual context and 
+    identifying key legal issues.
     """
-    step_id = f"fact_analyzer_{uuid.uuid4().hex[:8]}"
-    writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Analyzing legal facts",
-        "description": "Analyzing the client's facts to identify primary and secondary legal issues."
-    })
-    logger.info("Executing FactAnalyzerNode")
-
-    user_facts = state["user_facts"]
-    party_represented = state.get("party_represented", "")
-    legal_question = state.get("legal_question", "")
-
-    # Create structured LLM for focused task
+    logger.info("Starting fact analysis...")
+    
+            # Get node-specific LLM
+    llm = llm_helper.get_node_llm("final_drafter_node")
+    
+    start_time = time.time()
+    
     structured_llm = llm.with_structured_output(LegalIssueAnalysisOutput)
-
-    party_context = ""
-    if party_represented:
-        party_context = f"\n\nIMPORTANT: You are representing the {party_represented}. Frame your analysis from the {party_represented}'s perspective and identify issues that would be relevant to advancing the {party_represented}'s position."
-
-    system_prompt = f"""You are a legal issue identification specialist. Your ONLY job is to analyze facts and identify legal issues.
-
-1. Identify the PRIMARY legal issue (most important)
-2. Identify up to 3 secondary issues (supporting or related)
-3. Determine the applicable area of law
-
-Be focused and specific. Do NOT develop strategy or suggest arguments.{party_context}"""
-
-    prompt_content = f"Facts: {user_facts}"
-    if legal_question:
-        prompt_content += f"\n\nSpecific Legal Question: {legal_question}"
-    if party_represented:
-        prompt_content += f"\n\nParty Represented: {party_represented}"
-
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"Analyze these facts and identify legal issues:\n\n{prompt_content}")
-    ])
-
-    try:
-        analysis_output = await structured_llm.ainvoke(prompt_template.format_messages())
-        
-        # Store in state
-        state["legal_issue_analysis"] = {
-            "primary_issue": analysis_output.primary_issue,
-            "secondary_issues": analysis_output.secondary_issues,
-            "applicable_law": analysis_output.applicable_law
-        }
-        
-        logger.info(f"Legal issue analysis completed: {analysis_output.primary_issue}")
-        
-        # Stream completion update
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Facts analyzed",
-            "description": f"Identified primary issue: {analysis_output.primary_issue}, applicable law: {analysis_output.applicable_law}"
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in fact analysis: {e}")
-        # Fallback analysis
-        state["legal_issue_analysis"] = {
-            "primary_issue": "Legal dispute requiring analysis",
-            "secondary_issues": [],
-            "applicable_law": "General legal principles"
-        }
-
-    return state
 
 
 async def strategy_developer_node(state: DraftingState) -> DraftingState:
@@ -183,6 +123,9 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
         "description": "Developing the core legal strategy and approach based on identified issues."
     })
     logger.info("Executing StrategyDeveloperNode")
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("strategy_developer_node")
 
     legal_issue_analysis = state.get("legal_issue_analysis", {})
     case_file = state.get("case_file", {})
@@ -277,6 +220,9 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
         "description": "Building specific legal arguments that support the core strategy."
     })
     logger.info("Executing ArgumentBuilderNode")
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("argument_builder_node")
 
     core_strategy = state.get("core_strategy", {})
     legal_issue_analysis = state.get("legal_issue_analysis", {})
@@ -378,6 +324,9 @@ async def simple_critic_node(state: DraftingState) -> DraftingState:
     })
     logger.info("Executing SimpleCriticNode")
 
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("simple_critic_node")
+
     core_strategy = state.get("core_strategy", {})
     arguments = state.get("arguments", [])
     legal_issue_analysis = state.get("legal_issue_analysis", {})
@@ -478,6 +427,9 @@ async def argument_improver_node(state: DraftingState) -> DraftingState:
     })
     logger.info("Executing ArgumentImproverNode")
 
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("argument_improver_node")
+
     # Increment revision count
     revision_count = state.get("revision_count", 0)
     state["revision_count"] = revision_count + 1
@@ -553,6 +505,9 @@ async def final_drafter_node(state: DraftingState) -> DraftingState:
         "description": "Drafting the final comprehensive legal argument using the approved strategy."
     })
     logger.info("Executing FinalDrafterNode")
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("final_drafter_node")
 
     core_strategy = state.get("core_strategy", {})
     arguments = state.get("arguments", [])
@@ -719,6 +674,9 @@ async def content_reviser_node(state: DraftingState) -> DraftingState:
         "description": "Revising the legal argument content based on edit instructions."
     })
     logger.info("Executing ContentReviserNode")
+
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("content_reviser_node")
 
     existing_draft = state.get("existing_draft", "")
     edit_instructions = state.get("edit_instructions", "")
