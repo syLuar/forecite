@@ -592,23 +592,52 @@ class BaseDocumentProcessor:
 
 # Pydantic schemas for structured output (V1)
 class LegalEntities(BaseModel):
-    """Schema for extracting legal entities from text."""
+    """Schema for extracting legal entities from chunk-level text."""
 
     cases: List[str] = Field(
-        description="List of case names and citations (include year if available)"
+        description="List of case names and citations referenced in this chunk (include year if available)"
     )
-    statutes: List[str] = Field(description="List of statute references with sections")
-    concepts: List[str] = Field(description="List of key legal concepts and principles")
-    courts: List[str] = Field(description="List of court names")
-    judges: List[str] = Field(description="List of judge names mentioned")
+    statutes: List[str] = Field(description="List of statute references with sections mentioned in this chunk")
+    concepts: List[str] = Field(description="List of key legal concepts and principles discussed in this chunk")
     holdings: List[str] = Field(
-        description="List of key legal holdings or ratio decidendi"
+        description="List of key legal holdings or ratio decidendi mentioned in this chunk"
     )
-    facts: List[str] = Field(description="List of key factual elements")
+    facts: List[str] = Field(description="List of key factual elements presented in this chunk")
     legal_tests: List[str] = Field(
-        description="List of legal tests or standards mentioned"
+        description="List of legal tests or standards mentioned in this chunk"
     )
 
+
+class Judge(BaseModel):
+    """Schema for a judge."""
+    name: str = Field(description="Full name of the judge")
+    role: str = Field(description="Role such as Chief Justice, Justice, etc.")
+
+class Lawyer(BaseModel):
+    """Schema for a lawyer."""
+    name: str = Field(description="Full name of the lawyer")
+    role: str = Field(description="Role such as counsel for plaintiff, counsel for defendant, etc.")
+    firm: str = Field(description="Law firm name", default="")
+
+class CitationFormat(BaseModel):
+    """Schema for citation formats."""
+    primary: str = Field(description="Primary citation format")
+    alternative: List[str] = Field(description="Alternative citation formats")
+    neutral: str = Field(description="Neutral citation if available", default="")
+
+class ChunkRelevance(BaseModel):
+    """Schema for chunk relevance assessment."""
+    is_relevant: bool = Field(description="Whether the chunk contains substantial legal content worth indexing")
+    reasoning: str = Field(description="Brief explanation of why the chunk is or isn't relevant")
+
+class LegalSummary(BaseModel):
+    """Schema for legal text summary with integrated relevance assessment."""
+    summary: Optional[str] = Field(
+        description="Concise summary focusing on key legal concepts, principles, citations, and holdings. ONLY provide a summary if the text contains substantial legal content worth indexing for legal research. Return None if the text is just headers, footers, page numbers, table of contents, or administrative content with no legal substance."
+    )
+    key_concepts: List[str] = Field(description="List of key legal concepts mentioned (empty if not relevant)")
+    case_references: List[str] = Field(description="List of case citations or references found (empty if not relevant)")
+    reasoning: str = Field(description="Brief explanation of why content was or wasn't summarized")
 
 class DocumentMetadata(BaseModel):
     """Schema for extracting document metadata."""
@@ -624,6 +653,15 @@ class DocumentMetadata(BaseModel):
     )
     legal_areas: List[str] = Field(
         description="List of areas of law (contract, tort, criminal, etc.)"
+    )
+    judges: List[Judge] = Field(
+        description="List of judges with their roles"
+    )
+    lawyers: List[Lawyer] = Field(
+        description="List of lawyers with their roles and firms"
+    )
+    citation_formats: List[str] = Field(
+        description="List of all possible citation formats for this case"
     )
 
 

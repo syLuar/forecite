@@ -131,11 +131,39 @@ def add_party_represented_if_missing(conn: sqlite3.Connection):
         raise
 
 
+def create_case_file_notes_if_missing(conn: sqlite3.Connection):
+    if table_exists(conn, 'case_file_notes'):
+        print('[MIGRATION] case_file_notes table already exists.')
+        return
+
+    print('[MIGRATION] Creating case_file_notes table...')
+    try:
+        conn.execute('''
+            CREATE TABLE case_file_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_file_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                author_type VARCHAR(20) NOT NULL,
+                author_name VARCHAR(100),
+                note_type VARCHAR(50),
+                tags JSON,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME,
+                FOREIGN KEY (case_file_id) REFERENCES case_files (id) ON DELETE CASCADE
+            )
+        ''')
+        print('[MIGRATION] case_file_notes table created successfully.')
+    except sqlite3.OperationalError as e:
+        print(f'[MIGRATION] Failed to create case_file_notes table: {e}')
+        raise
+
+
 def migration_already_applied(conn: sqlite3.Connection) -> bool:
     no_legal_question = table_exists(conn, 'case_files') and not column_exists(conn, 'case_files', 'legal_question')
     moot_exists = table_exists(conn, 'moot_court_sessions')
     party_exists = table_exists(conn, 'case_files') and column_exists(conn, 'case_files', 'party_represented')
-    return no_legal_question and moot_exists and party_exists
+    notes_exists = table_exists(conn, 'case_file_notes')
+    return no_legal_question and moot_exists and party_exists and notes_exists
 
 
 def apply_migration():
@@ -152,6 +180,7 @@ def apply_migration():
         drop_legal_question_if_present(conn)
         create_moot_court_sessions_if_missing(conn)
         add_party_represented_if_missing(conn)
+        create_case_file_notes_if_missing(conn)
         conn.commit()
         print('[MIGRATION] Migration complete.')
 

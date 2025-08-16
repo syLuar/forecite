@@ -15,6 +15,9 @@ WORKFLOWS = [
     ("app.graphs.v2.research_graph", "research_graph", "research_graph_v2.png"),
     ("app.graphs.v2.drafting_graph", "drafting_graph", "drafting_graph_v2.png"),
     ("app.graphs.v2.counterargument_graph", "counterargument_graph", "counterargument_graph_v2.png"),
+    ("app.graphs.v3.research_graph", "research_graph", "research_graph_v3.png"),
+    ("app.graphs.v3.drafting_graph", "drafting_graph", "drafting_graph_v3.png"),
+    ("app.graphs.v3.counterargument_graph", "counterargument_graph", "counterargument_graph_v3.png"),
 ]
 
 def render_mermaid_to_png(graph, output_path):
