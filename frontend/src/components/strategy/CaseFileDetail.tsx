@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Scale, FileText, Save, Trash2, Eye, Search, PenTool, ScrollText, Gavel, Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { apiClient, StreamingCallbacks } from '../../services/api';
-import { ArgumentDraftRequest, ArgumentDraftResponse, SavedArgumentDraft, CaseFileResponse } from '../../types/api';
+import { ArgumentDraftRequest, ArgumentDraftResponse, SavedArgumentDraft, CaseFileResponse, AddCaseFileNoteRequest, UpdateCaseFileNoteRequest } from '../../types/api';
 import SearchModal from '../shared/SearchModal';
 import DraftArgumentModal from '../shared/DraftArgumentModal';
+import ResearchModal from '../shared/ResearchModal';
 import SaveDraftModal from '../shared/SaveDraftModal';
 import ConfirmModal from '../shared/ConfirmModal';
 import SuccessModal from '../shared/SuccessModal';
@@ -13,6 +14,7 @@ import MootCourt from './MootCourt';
 import MootCourtSessionsList from './MootCourtSessionsList';
 import MootCourtSessionViewer from './MootCourtSessionViewer';
 import AIEditModal from '../shared/AIEditModal';
+import CaseFileNotes from './CaseFileNotes';
 
 interface CaseFileDetailProps {
   caseFileId: number;
@@ -65,6 +67,10 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
   const [streamingError, setStreamingError] = useState<string | null>(null);
   const [showStreamingModal, setShowStreamingModal] = useState(false);
   const [streamingTitle, setStreamingTitle] = useState<string>('Processing');
+
+  // Research state
+  const [isResearching, setIsResearching] = useState(false);
+  const [showResearchModal, setShowResearchModal] = useState(false);
 
   const loadCaseFileData = useCallback(async () => {
     try {
@@ -291,6 +297,33 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       true
     );
   };
+  
+  const handleRemoveAllDocuments = async () => {
+    const removeAllAction = async () => {
+      try {
+        const result = await apiClient.removeAllDocumentsFromCaseFile(caseFileId);
+        await loadCaseFileData();
+        
+        setSuccessDetails({
+          title: 'Documents Removed',
+          message: `Successfully removed ${result.removed_count} documents from the case file.`
+        });
+        setShowSuccessModal(true);
+      } catch (error) {
+        console.error('Failed to remove all documents:', error);
+        alert('Failed to remove all documents. Please try again.');
+        throw error;
+      }
+    };
+
+    showConfirmDialog(
+      'Remove All Documents',
+      'Are you sure you want to remove all documents from this case file? This action cannot be undone.',
+      'Remove All Documents',
+      removeAllAction,
+      true
+    );
+  };
 
   const handleDeleteDraft = async (draftId: number) => {
     const deleteAction = async () => {
@@ -329,6 +362,125 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
       message: 'The document has been added to your case file and is now available for use in your legal arguments.'
     });
     setShowSuccessModal(true);
+  };
+
+  const handleConductResearch = async (legalIssues?: string[]) => {
+    if (!caseFile) {
+      alert('Case file not found.');
+      return;
+    }
+
+    if (!caseFile.user_facts || !caseFile.user_facts.trim()) {
+      alert('Please add case facts to your case file before conducting research. Case facts are required for the AI to understand the context.');
+      return;
+    }
+
+    setIsResearching(true);
+    setStreamingError(null);
+    setStreamingSteps([]);
+    setStreamingTitle('Conducting Legal Research');
+
+    try {
+      const request = {
+        case_file_id: caseFileId,
+        ...(legalIssues && legalIssues.length > 0 && { legal_issues: legalIssues }),
+        jurisdiction: 'Singapore',
+      };
+
+      // Check if streaming is enabled
+      const streamingEnabled = process.env.REACT_APP_STREAMING === 'true';
+      
+      if (streamingEnabled) {
+        setIsStreaming(true);
+        
+        const callbacks: StreamingCallbacks = {
+          onChunk: processStreamingChunk,
+          onComplete: handleResearchStreamingComplete,
+          onError: handleStreamingError,
+        };
+
+        await apiClient.conductResearch(request, callbacks);
+      } else {
+        const response = await apiClient.conductResearch(request);
+        setSuccessDetails({
+          title: 'Research Completed!',
+          message: `Found and added ${response.documents_added} documents and ${response.notes_added} research notes to your case file.`
+        });
+        setShowSuccessModal(true);
+        await loadCaseFileData();
+      }
+      
+    } catch (error) {
+      console.error('Research failed:', error);
+      alert('Failed to conduct research. Please try again.');
+    } finally {
+      setIsResearching(false);
+      setIsStreaming(false);
+      setShowResearchModal(false);
+    }
+  };
+
+  const handleResearchStreamingComplete = useCallback((finalResponse: any) => {
+    setStreamingSteps(prev => prev.map(step => ({ ...step, status: 'completed' as const })));
+    const responseData = finalResponse?.data || finalResponse;
+    
+    setSuccessDetails({
+      title: 'Research Completed!',
+      message: `Found and added ${responseData.documents_added || 0} documents and ${responseData.notes_added || 0} research notes to your case file.`
+    });
+    setShowSuccessModal(true);
+    
+    setIsStreaming(false);
+    setIsResearching(false);
+    setShowResearchModal(false);
+    
+    // Reload case file data to show new documents and notes
+    loadCaseFileData();
+  }, [loadCaseFileData]);
+
+  const handleAddNote = async (request: AddCaseFileNoteRequest) => {
+    try {
+      await apiClient.addNoteToCaseFile(caseFileId, request);
+      await loadCaseFileData();
+      setSuccessDetails({
+        title: 'Note Added Successfully!',
+        message: 'Your note has been added to the case file.'
+      });
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error('Failed to add note:', error);
+      throw error;
+    }
+  };
+
+  const handleUpdateNote = async (noteId: number, request: UpdateCaseFileNoteRequest) => {
+    try {
+      await apiClient.updateCaseFileNote(caseFileId, noteId, request);
+      await loadCaseFileData();
+      setSuccessDetails({
+        title: 'Note Updated Successfully!',
+        message: 'Your note has been updated.'
+      });
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error('Failed to update note:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteNote = async (noteId: number) => {
+    try {
+      await apiClient.deleteCaseFileNote(caseFileId, noteId);
+      await loadCaseFileData();
+      setSuccessDetails({
+        title: 'Note Deleted Successfully!',
+        message: 'Your note has been deleted.'
+      });
+      setShowSuccessModal(true);
+    } catch (error) {
+      console.error('Failed to delete note:', error);
+      throw error;
+    }
   };
 
   const handleMootCourtClick = () => {
@@ -1084,14 +1236,6 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                   title="View Moot Court Sessions"
                 >
                   <Gavel className="h-4 w-4 mr-1.5" />
-                  Sessions
-                </button>
-                <button
-                  onClick={handleMootCourtClick}
-                  className="flex items-center px-3 py-2 text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all duration-300 shadow-lg"
-                  title="Open Moot Court - Practice your arguments"
-                >
-                  <Gavel className="h-4 w-4 mr-1.5" />
                   Moot Court
                 </button>
               </div>
@@ -1136,14 +1280,35 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                     <FileText className="h-5 w-5 mr-2" />
                     Documents ({caseFile.documents.length})
                   </h3>
-                  <button
-                    onClick={() => setShowSearchModal(true)}
-                    className="flex items-center px-3 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
-                    title="Search for documents to add to case file"
-                  >
-                    <Search className="h-4 w-4 mr-1.5" />
-                    Search for Documents
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {caseFile.documents.length > 0 && (
+                      <button
+                        onClick={handleRemoveAllDocuments}
+                        className="flex items-center px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200"
+                        title="Remove all documents from this case file"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1.5" />
+                        Delete All
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowResearchModal(true)}
+                      className="flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                      title="Use AI to research legal issues and automatically find relevant documents"
+                      disabled={isResearching}
+                    >
+                      <Bot className="h-4 w-4 mr-1.5" />
+                      {isResearching ? 'Researching...' : 'Research with Forecite AI'}
+                    </button>
+                    <button
+                      onClick={() => setShowSearchModal(true)}
+                      className="flex items-center px-3 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary-700 transition-colors duration-200"
+                      title="Search for documents to add to case file"
+                    >
+                      <Search className="h-4 w-4 mr-1.5" />
+                      Search for Documents
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="max-h-80 overflow-y-auto">
@@ -1197,6 +1362,16 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
                 )}
               </div>
             </div>
+
+            {/* Notes */}
+            <CaseFileNotes
+              notes={caseFile.notes || []}
+              caseFileId={caseFileId}
+              onAddNote={handleAddNote}
+              onUpdateNote={handleUpdateNote}
+              onDeleteNote={handleDeleteNote}
+              isLoading={loading}
+            />
 
             {/* Saved Drafts */}
             <div className="bg-white rounded-lg shadow-md border border-gray-200">
@@ -1301,6 +1476,14 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
         onClose={() => setShowSearchModal(false)}
         caseFileId={caseFileId}
         onDocumentAdded={handleDocumentAdded}
+      />
+
+      <ResearchModal
+        isOpen={showResearchModal}
+        onClose={() => setShowResearchModal(false)}
+        caseFileId={caseFileId}
+        onConductResearch={handleConductResearch}
+        isResearching={isResearching}
       />
 
       <ConfirmModal

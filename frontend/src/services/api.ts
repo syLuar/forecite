@@ -143,6 +143,17 @@ class ApiClient {
     return this.request(`/api/v1/research/citation-network/${encodeURIComponent(citation)}?direction=${direction}`);
   }
 
+  async conductResearch(request: any, callbacks?: StreamingCallbacks): Promise<any> {
+    if (STREAMING_ENABLED && callbacks) {
+      return this.streamRequest('/api/v1/research/conduct-research', request, callbacks);
+    }
+    
+    return this.request('/api/v1/research/conduct-research', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
   // Drafting methods
   async draftArgument(request: any, callbacks?: StreamingCallbacks): Promise<any> {
     if (STREAMING_ENABLED && callbacks) {
@@ -196,9 +207,36 @@ class ApiClient {
       method: 'DELETE',
     });
   }
+  
+  async removeAllDocumentsFromCaseFile(caseFileId: number): Promise<{ success: boolean, removed_count: number }> {
+    return this.request(`/api/v1/case-files/${caseFileId}/documents`, {
+      method: 'DELETE',
+    });
+  }
 
   async getDocumentFromCaseFile(caseFileId: number, documentId: string): Promise<any> {
     return this.request(`/api/v1/case-files/${caseFileId}/documents/${encodeURIComponent(documentId)}`);
+  }
+
+  // Case File Notes Management methods
+  async addNoteToCaseFile(caseFileId: number, request: any): Promise<{ note_id: number }> {
+    return this.request(`/api/v1/case-files/${caseFileId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateCaseFileNote(caseFileId: number, noteId: number, request: any): Promise<{ success: boolean }> {
+    return this.request(`/api/v1/case-files/${caseFileId}/notes/${noteId}`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteCaseFileNote(caseFileId: number, noteId: number): Promise<{ success: boolean }> {
+    return this.request(`/api/v1/case-files/${caseFileId}/notes/${noteId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Argument Draft Management methods

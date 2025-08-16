@@ -125,7 +125,33 @@ export interface CaseFileResponse {
   created_at: string;
   updated_at?: string;
   documents: any[];
+  notes: CaseFileNote[];
   total_documents: number;
+}
+
+export interface CaseFileNote {
+  id: number;
+  content: string;
+  author_type: 'user' | 'ai';
+  author_name?: string;
+  note_type?: string;
+  tags: string[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface AddCaseFileNoteRequest {
+  content: string;
+  author_type: 'user' | 'ai';
+  author_name?: string;
+  note_type?: string;
+  tags?: string[];
+}
+
+export interface UpdateCaseFileNoteRequest {
+  content: string;
+  note_type?: string;
+  tags?: string[];
 }
 
 export interface CaseFileListItem {
