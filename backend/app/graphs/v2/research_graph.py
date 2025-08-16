@@ -197,7 +197,6 @@ Available strategies:
 - semantic: Use AI similarity search (best for conceptual queries)
 - fulltext: Use keyword matching (best for specific terms/phrases)  
 - citation: Use case citation analysis (best when specific cases mentioned)
-- concept: Use legal concept mapping (best for broad legal principles)
 
 Legal area: {query_analysis.get('legal_area', 'unknown')}
 Key concepts: {query_analysis.get('key_concepts', [])}
@@ -457,17 +456,6 @@ async def search_execution_node(state: ResearchState) -> ResearchState:
             else:
                 # Fallback to semantic if no citations detected
                 results = await vector_search(prepared_query, **search_kwargs)
-                retrieved_docs.extend(results)
-
-        elif execution_strategy == "concept":
-            # Execute concept searches for each term in prepared query
-            concepts = prepared_query.split()[:5]  # Limit concepts
-            for concept in concepts:
-                results = find_legal_concepts(
-                    concept,
-                    jurisdiction=search_kwargs.get("jurisdiction"),
-                    limit=search_kwargs.get("limit", 15) // len(concepts)
-                )
                 retrieved_docs.extend(results)
 
         # Remove duplicates
