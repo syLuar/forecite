@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Calendar, User, Swords, X } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import { apiClient } from '../../services/api';
 
 interface MootCourtSessionViewerProps {
@@ -250,15 +253,36 @@ const MootCourtSessionViewer: React.FC<MootCourtSessionViewerProps> = ({
                   {session.source_arguments.map((arg: any, index: number) => (
                     <div key={index} className="border-l-4 border-primary pl-4 bg-gray-50 p-4 rounded-r-lg">
                       <h4 className="font-semibold text-gray-900 mb-2">Argument {index + 1}</h4>
-                      <p className="text-gray-700 mb-3 leading-relaxed">{arg.argument}</p>
+                      <div className="text-gray-700 mb-3 leading-relaxed prose prose-sm max-w-none">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeSanitize]}
+                        >
+                          {arg.argument}
+                        </ReactMarkdown>
+                      </div>
                       <div className="space-y-2 text-sm">
                         <div>
                           <span className="font-medium text-gray-900">Supporting Authority:</span>
-                          <p className="text-gray-600 mt-1">{arg.supporting_authority}</p>
+                          <div className="text-gray-600 mt-1 prose prose-sm max-w-none">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeSanitize]}
+                            >
+                              {arg.supporting_authority}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                         <div>
                           <span className="font-medium text-gray-900">Factual Basis:</span>
-                          <p className="text-gray-600 mt-1">{arg.factual_basis}</p>
+                          <div className="text-gray-600 mt-1 prose prose-sm max-w-none">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeSanitize]}
+                            >
+                              {arg.factual_basis}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -286,17 +310,36 @@ const MootCourtSessionViewer: React.FC<MootCourtSessionViewerProps> = ({
                         <h4 className="font-semibold text-gray-900 mb-2">
                           Counter-Argument {index + 1}: {counterArg.title}
                         </h4>
-                        <p className="text-gray-700 mb-3 leading-relaxed">
-                          {counterArg.argument}
-                        </p>
+                        <div className="text-gray-700 mb-3 leading-relaxed prose prose-sm max-w-none">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeSanitize]}
+                          >
+                            {counterArg.argument}
+                          </ReactMarkdown>
+                        </div>
                         <div className="space-y-2 text-sm">
                           <div>
                             <span className="font-medium text-gray-900">Supporting Authority:</span>
-                            <p className="text-gray-600 mt-1">{counterArg.supporting_authority}</p>
+                            <div className="text-gray-600 mt-1 prose prose-sm max-w-none">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeSanitize]}
+                              >
+                                {counterArg.supporting_authority}
+                              </ReactMarkdown>
+                            </div>
                           </div>
                           <div>
                             <span className="font-medium text-gray-900">Factual Basis:</span>
-                            <p className="text-gray-600 mt-1">{counterArg.factual_basis}</p>
+                            <div className="text-gray-600 mt-1 prose prose-sm max-w-none">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeSanitize]}
+                              >
+                                {counterArg.factual_basis}
+                              </ReactMarkdown>
+                            </div>
                           </div>
                           {counterArg.strength_assessment && (
                             <div>
@@ -357,12 +400,24 @@ const MootCourtSessionViewer: React.FC<MootCourtSessionViewerProps> = ({
                     <h3 className="font-semibold text-gray-900 mb-2">
                       Rebuttal {index + 1}: {rebuttal.title}
                     </h3>
-                    <p className="text-gray-700 mb-3 leading-relaxed">
-                      {rebuttal.content}
-                    </p>
+                    <div className="text-gray-700 mb-3 leading-relaxed prose prose-sm max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeSanitize]}
+                      >
+                        {rebuttal.content}
+                      </ReactMarkdown>
+                    </div>
                     <div className="text-sm">
                       <span className="font-medium text-gray-900">Supporting Authority:</span>
-                      <p className="text-gray-600 mt-1">{rebuttal.authority}</p>
+                      <div className="text-gray-600 mt-1 prose prose-sm max-w-none">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeSanitize]}
+                        >
+                          {rebuttal.authority}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 )) || (

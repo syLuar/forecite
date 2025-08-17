@@ -70,6 +70,7 @@ const SelectCaseModal: React.FC<SelectCaseModalProps> = ({
       const addDocRequest: AddDocumentToCaseFileRequest = {
         document_id: document.id,
         citation: document.citation,
+        parties: document.parties,
         title: document.title,
         year: parseInt(document.date.split('-')[0]) || new Date().getFullYear(),
         jurisdiction: document.jurisdiction,
@@ -122,6 +123,7 @@ const SelectCaseModal: React.FC<SelectCaseModalProps> = ({
       const addDocRequest: AddDocumentToCaseFileRequest = {
         document_id: document.id,
         citation: document.citation,
+        parties: document.parties,
         title: document.title,
         year: parseInt(document.date.split('-')[0]) || new Date().getFullYear(),
         jurisdiction: document.jurisdiction,

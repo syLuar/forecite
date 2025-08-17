@@ -143,7 +143,8 @@ const CaseFileDetail: React.FC<CaseFileDetailProps> = ({ caseFileId, onBack }) =
     })));
     setIsStreaming(false);
     setIsDrafting(false);
-    alert('Failed to draft argument. Please try again.');
+    console.log('Streaming error:', errorMessage);
+    alert('Failed to generate response. Please try again.');
   }, []);
 
   const handleDraftArgument = async (legalQuestion?: string, additionalInstructions?: string) => {

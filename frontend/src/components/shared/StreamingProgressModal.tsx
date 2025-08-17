@@ -38,6 +38,7 @@ const StreamingProgressModal: React.FC<StreamingProgressModalProps> = ({
 }) => {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const stepTimingsRef = useRef<Map<string, Date>>(new Map());
+  const contentRef = useRef<HTMLDivElement | null>(null); // Add ref for scrollable content
 
   // Process steps to handle status transitions and timing
   const processedSteps = useMemo(() => {
@@ -131,6 +132,13 @@ const StreamingProgressModal: React.FC<StreamingProgressModalProps> = ({
     }
   }, [isStreaming, error, processedSteps, isOpen, onClose, autoCloseDelay]);
 
+  // Auto-scroll to bottom when processedSteps change
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [processedSteps.length]);
+
   const toggleExpanded = (stepId: string) => {
     const newExpanded = new Set(expandedSteps);
     if (newExpanded.has(stepId)) {
@@ -211,7 +219,10 @@ const StreamingProgressModal: React.FC<StreamingProgressModalProps> = ({
           </div>
 
           {/* Content */}
-          <div className="p-6 max-h-96 overflow-y-auto">
+          <div
+            className="p-6 max-h-96 overflow-y-auto"
+            ref={contentRef} // Attach ref here
+          >
             {error && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg animate-in slide-in-from-top-2 fade-in-0">
                 <div className="flex items-center">

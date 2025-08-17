@@ -13,6 +13,7 @@ export interface ResearchQueryRequest {
 export interface RetrievedDocument {
   chunk_id?: string;
   text: string;
+  parties: string[];
   summary?: string;
   document_source: string;
   document_citation?: string;
@@ -168,6 +169,7 @@ export interface CaseFileListItem {
 export interface AddDocumentToCaseFileRequest {
   document_id: string;
   citation: string;
+  parties?: string[];
   title: string;
   year?: number;
   jurisdiction?: string;

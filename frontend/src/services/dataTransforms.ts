@@ -2,14 +2,16 @@ import { RetrievedDocument } from '../types/api';
 import { LegalDocument } from '../data/mockSearchData';
 
 export function transformRetrievedDocToLegalDoc(doc: RetrievedDocument): LegalDocument & { originalApiData?: RetrievedDocument } {
+  var title = extractTitleFromCitation(doc.document_citation || doc.document_source);
   return {
     id: doc.chunk_id || doc.document_citation || Math.random().toString(),
-    title: extractTitleFromCitation(doc.document_citation || doc.document_source),
+    title: title,
+    citation: doc.parties?.join(' vs ') || title,
+    parties: doc.parties || [],
     category: doc.document_type === 'Case' ? 'precedent' : 'laws',
     court: doc.courts?.[0],
     jurisdiction: doc.jurisdiction || 'Unknown',
     date: doc.document_year ? `${doc.document_year}-01-01` : '',
-    citation: doc.document_citation || doc.document_source,
     summary: doc.summary || doc.text.substring(0, 200) + '...',
     keyTerms: [...(doc.concepts || []), ...(doc.legal_tests || [])],
     relevanceScore: doc.score,
