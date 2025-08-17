@@ -92,12 +92,28 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Legal Research Assistant Backend")
     close_neo4j_connection()
 
+origins = [
+    "https://hawkihi.site",
+    "http://hawkihi.site",  # You might want to allow non-HTTPS for testing
+    "https://forecite.site",
+    "http://forecite.site",  # Non-HTTPS for testing
+    "http://localhost",
+    "http://localhost:3000", # Common for local React development
+]
 
 app = FastAPI(
     title="Legal Research Assistant API",
     description="Backend API for AI-powered legal research and argument drafting",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # List of origins that are allowed to make requests
+    allow_credentials=True, # Allow cookies to be included in requests
+    allow_methods=["*"],    # Allow all standard methods (GET, POST, etc.)
+    allow_headers=["*"],    # Allow all headers
 )
 
 
