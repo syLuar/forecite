@@ -178,11 +178,8 @@ class ValidateLegalStatementInput(BaseModel):
 class AddDocumentInput(BaseModel):
     """Input schema for adding documents to case file."""
     case_file_id: int = Field(description="ID of the case file to add document to")
-    document_id: str = Field(description="Unique identifier for the document")
-    citation: str = Field(description="Legal citation for the document")
-    title: str = Field(description="Title of the document")
+    chunk_id: str = Field(description="Unique identifier for the chunk")
     relevance_score_percent: Optional[float] = Field(default=None, description="Relevance score from 0-100")
-    key_holdings: Optional[List[str]] = Field(default=None, description="Key legal holdings from the document")
     user_notes: Optional[str] = Field(default=None, description="Notes about the document's relevance")
 
 
@@ -376,7 +373,7 @@ class LegalResearchAgent:
         return add_ai_note_tool(
             case_file_id=case_file_id,
             content=content,
-            author_name="Legal Research Agent",
+            author_name="Forecite AI",
             note_type=note_type,
             tags=tags
         )
@@ -523,9 +520,8 @@ class LegalResearchAgent:
         You are a expert legal researcher conducting detailed research for a case. Your job is to:
         
         1. IDENTIFY LEGAL ISSUES (if not provided): Analyze case facts to determine legal questions
-        2. RESEARCH RELEVANT AUTHORITIES: Use your tools to find cases, statutes, and legal principles
-        3. ADD DOCUMENTS TO CASE FILE: Save all relevant authorities you find using add_document_to_case_file
-        4. GENERATE CONCLUSIONS: Provide insights for argument development
+        2. RESEARCH RELEVANT AUTHORITIES: Use your tools to find cases, and add at most 5 documents and 3 notes to the case file
+        3. GENERATE CONCLUSIONS: Provide insights for argument development
         
         ## Case Information:
         - Case File ID: {case_file_id}
@@ -548,14 +544,10 @@ class LegalResearchAgent:
         - Trace important precedent chains
         - Extract key legal holdings
         - Document findings and insights as human-readable research notes
-        
-        ### Step 3: Document Organization
-        - Add relevant authorities to the case file using add_document_to_case_file
-        - Include relevance scores (0-100) based on how directly applicable they are
-        - Add key holdings for each document
-        - Include research notes explaining relevance to the case
-        
-        ### Step 4: Final Summary and Conclusion
+        - Add relevant cases to the case file using add_document_to_case_file
+        - ADD AT MOST 5 DOCUMENTS AND 3 NOTES. PLAN YOUR RESEARCH STEPS CAREFULLY.
+
+        ### Step 3: Final Summary and Conclusion
         Once all research steps are complete and all relevant documents and notes have been saved to the case file, you MUST conclude your work.
         Provide a final, comprehensive summary that includes:
         - A brief overview of the research conducted.
@@ -572,8 +564,10 @@ class LegalResearchAgent:
         - Be systematic and thorough in your research approach
         - Consider both supportive and adverse authorities
         - Provide strategic insights for argument development
-        
-        Begin your research now. 
+        - ADD AT MOST 5 DOCUMENTS AND 3 NOTES. PLAN YOUR RESEARCH STEPS CAREFULLY.
+
+        Begin your research now. Remember not to add too many documents or notes, as you will need to conclude your research with a final summary.
+        There is a short time limit for this research, so do not research for too long.
         """
 
         return {"messages": [{"role": "user", "content": research_prompt}]}

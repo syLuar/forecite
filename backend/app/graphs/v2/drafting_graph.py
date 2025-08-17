@@ -7,6 +7,7 @@ has been broken down into focused, single-responsibility nodes.
 """
 
 import logging
+from pprint import pprint
 from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph
 from langgraph.constants import END
@@ -98,14 +99,96 @@ async def fact_analyzer_node(state: DraftingState) -> DraftingState:
     for the legal argument by analyzing the factual context and 
     identifying key legal issues.
     """
-    logger.info("Starting fact analysis...")
+    step_id = f"fact_analyzer_{uuid.uuid4().hex[:8]}"
+    writer = get_stream_writer()
+    writer({
+        "step_id": step_id,
+        "status": "in_progress",
+        "brief_description": "Analyzing facts and legal issues",
+        "description": "Analyzing the factual context to identify key legal issues."
+    })
+    logger.info("Executing FactAnalyzerNode")
     
-            # Get node-specific LLM
-    llm = llm_helper.get_node_llm("final_drafter_node")
+    # Get node-specific LLM
+    llm = llm_helper.get_node_llm("fact_analyzer_node")
     
-    start_time = time.time()
+    user_facts = state["user_facts"]
+    case_file = state.get("case_file", {})
+    case_file_notes = case_file.get("notes", [])
+    party_represented = state.get("party_represented", "")
     
     structured_llm = llm.with_structured_output(LegalIssueAnalysisOutput)
+    
+    notes_context = ""
+    if case_file_notes:
+        notes_context = f"\n\nCase File Notes Available:\n"
+        for note in case_file_notes:
+            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
+            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+        notes_context += "\nConsider these insights when identifying legal issues."
+    
+    party_context = ""
+    if party_represented:
+        party_context = f"\n\nParty Represented: {party_represented}. Consider what legal issues favor this party's position."
+    
+    system_prompt = f"""You are a legal issue analysis specialist. Your ONLY job is to analyze facts and identify legal issues.
+
+Based on the facts provided, identify:
+1. The primary legal issue (main legal question)
+2. Secondary supporting issues (up to 3)
+3. The applicable legal framework or area of law
+
+Focus on actionable legal issues that can form the basis of legal arguments.
+{party_context}
+{notes_context}"""
+    
+    prompt_content = f"Facts to analyze: {user_facts}"
+    if case_file.get("documents"):
+        prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file.get('documents', []), indent=2, default=str)}"
+    
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=f"{prompt_content}\n\nAnalyze these facts and identify the key legal issues.")
+    ])
+    
+    try:
+        analysis_output = await structured_llm.ainvoke(prompt_template.format_messages())
+        
+        # Store in state
+        state["legal_issue_analysis"] = {
+            "primary_issue": analysis_output.primary_issue,
+            "secondary_issues": analysis_output.secondary_issues,
+            "applicable_law": analysis_output.applicable_law
+        }
+        
+        logger.info(f"Legal issue analysis completed: {analysis_output.primary_issue}")
+        
+        # Stream completion update
+        writer({
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Fact analysis complete",
+            "description": f"Identified primary issue: {analysis_output.primary_issue[:100]}{'...' if len(analysis_output.primary_issue) > 100 else ''}"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in fact analysis: {e}")
+        # Fallback analysis
+        state["legal_issue_analysis"] = {
+            "primary_issue": "Legal dispute requiring analysis",
+            "secondary_issues": ["Factual application", "Legal standards"],
+            "applicable_law": "Relevant jurisdiction law"
+        }
+        
+        writer({
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Fact analysis complete (fallback)",
+            "description": "Completed fact analysis using fallback due to error"
+        })
+    
+    return state
 
 
 async def strategy_developer_node(state: DraftingState) -> DraftingState:
@@ -129,6 +212,7 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
 
     legal_issue_analysis = state.get("legal_issue_analysis", {})
     case_file = state.get("case_file", {})
+    case_file_notes = case_file.get("notes", [])
     user_facts = state["user_facts"]
     party_represented = state.get("party_represented", "")
 
@@ -147,6 +231,15 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
     if party_represented:
         party_context = f"\n\nCRITICAL: You are representing the {party_represented}. Develop a strategy that advances the {party_represented}'s interests and position. Frame all legal theories and thesis statements from the {party_represented}'s perspective."
 
+    notes_context = ""
+    if case_file_notes:
+        notes_context = f"\n\nCase File Notes Available:\n"
+        for note in case_file_notes:
+            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
+            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+        notes_context += "\nConsider these insights when developing your strategy."
+
     system_prompt = f"""You are a legal strategy specialist. Your ONLY job is to develop the core strategic approach.
 
 Based on the legal issue analysis, develop:
@@ -157,6 +250,7 @@ Based on the legal issue analysis, develop:
 Primary issue: {legal_issue_analysis.get('primary_issue', 'Unknown')}
 Applicable law: {legal_issue_analysis.get('applicable_law', 'Unknown')}
 {party_context}
+{notes_context}
 {revision_context}
 
 Focus on the big picture strategy, not specific arguments."""
@@ -227,6 +321,7 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
     core_strategy = state.get("core_strategy", {})
     legal_issue_analysis = state.get("legal_issue_analysis", {})
     case_file = state.get("case_file", {})
+    case_file_notes = case_file.get("notes", [])
     user_facts = state["user_facts"]
     party_represented = state.get("party_represented", "")
 
@@ -237,11 +332,21 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
     if party_represented:
         party_context = f"\n\nCRITICAL: You are representing the {party_represented}. Each argument must advance the {party_represented}'s position and be framed from the {party_represented}'s perspective. Consider how these arguments help the {party_represented} win their case."
 
+    notes_context = ""
+    if case_file_notes:
+        notes_context = f"\n\nCase File Notes Available:\n"
+        for note in case_file_notes:
+            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
+            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+        notes_context += "\nLeverage these insights when building your arguments."
+
     system_prompt = f"""You are a legal argument specialist. Your job is to create multiple specific legal arguments (between 2-4) that support the strategy.
 
 Core strategy: {core_strategy.get('main_thesis', '')}
 Legal theory: {core_strategy.get('legal_theory', '')}
 {party_context}
+{notes_context}
 
 Generate between 2-4 compelling legal arguments that collectively support this strategy. Each argument should:
 1. Make a specific legal point
@@ -514,8 +619,18 @@ async def final_drafter_node(state: DraftingState) -> DraftingState:
     legal_issue_analysis = state.get("legal_issue_analysis", {})
     user_facts = state["user_facts"]
     case_file = state.get("case_file", {})
+    case_file_notes = case_file.get("notes", [])
 
-    system_prompt = """You are a legal writing specialist. Your ONLY job is to draft a comprehensive legal argument.
+    notes_context = ""
+    if case_file_notes:
+        notes_context = f"\n\nCase File Notes:\n"
+        for note in case_file_notes:
+            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
+            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+        notes_context += "\nIncorporate relevant insights from these notes into your final argument."
+
+    system_prompt = f"""You are a legal writing specialist. Your ONLY job is to draft a comprehensive legal argument.
 
 Structure the argument with:
 1. Introduction (issue and thesis)
@@ -523,7 +638,8 @@ Structure the argument with:
 3. Analysis (application to facts)
 4. Conclusion
 
-Use professional legal writing style with proper reasoning and citations."""
+Use professional legal writing style with proper reasoning and citations.
+{notes_context}"""
 
     prompt_template = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
@@ -538,12 +654,17 @@ Facts: {user_facts}
 
 Available Precedents: {json.dumps(case_file, indent=2, default=str)}
 
+Case File Notes: {json.dumps(case_file_notes, indent=2, default=str)}
+
 Draft a comprehensive legal argument that implements this strategy.""")
     ])
 
     try:
         response = await llm.ainvoke(prompt_template.format_messages())
         drafted_argument = response.content
+        
+        if isinstance(drafted_argument, list):
+            drafted_argument = drafted_argument[0]["text"]
 
         # Extract citations used
         citations_used = []
@@ -680,17 +801,29 @@ async def content_reviser_node(state: DraftingState) -> DraftingState:
 
     existing_draft = state.get("existing_draft", "")
     edit_instructions = state.get("edit_instructions", "")
+    case_file = state.get("case_file", {})
+    case_file_notes = case_file.get("notes", [])
 
     # Create structured LLM for content revision
     structured_llm = llm.with_structured_output(ContentRevisionOutput)
 
-    system_prompt = """You are a legal content revision specialist. Your ONLY job is to revise content based on instructions.
+    notes_context = ""
+    if case_file_notes:
+        notes_context = f"\n\nCase File Notes:\n"
+        for note in case_file_notes:
+            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
+            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+        notes_context += "\nConsider these insights when making revisions."
+
+    system_prompt = f"""You are a legal content revision specialist. Your ONLY job is to revise content based on instructions.
 
 Make the requested changes while:
 1. Maintaining legal accuracy
 2. Preserving good content where possible
 3. Improving clarity and effectiveness
-4. Following proper legal writing conventions"""
+4. Following proper legal writing conventions
+{notes_context}"""
 
     prompt_template = ChatPromptTemplate.from_messages([
         SystemMessage(content=system_prompt),
@@ -698,6 +831,8 @@ Make the requested changes while:
 Original draft: {existing_draft}
 
 Edit instructions: {edit_instructions}
+
+Case File Notes: {json.dumps(case_file_notes, indent=2, default=str)}
 
 Revise the content according to the instructions.""")
     ])

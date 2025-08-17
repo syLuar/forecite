@@ -75,7 +75,6 @@ class SingleCounterArgumentOutput(BaseModel):
     argument: str = Field(description="Detailed counterargument with specific legal reasoning")
     supporting_authority: str = Field(description="Specific legal authority, case citation, or statute supporting this challenge")
     factual_basis: str = Field(description="Factual foundation explaining why this challenge applies")
-    strength: float = Field(description="Strength assessment 0-1", ge=0.0, le=1.0)
 
 
 class SingleRebuttalOutput(BaseModel):
@@ -515,8 +514,13 @@ async def counterargument_developer_node(state: CounterArgumentState) -> Counter
     
     party_context = ""
     if party_represented:
-        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now arguing as opposing counsel against {party_represented}'s arguments. Frame your counterarguments from the opposing party's perspective and interests. What would the opposing party argue to defeat {party_represented}'s position?"
-    
+        party_context = f"""You are now representing {party_represented} in this case. 
+Frame your counterarguments from {party_represented}'s perspective and interests. 
+What arguments would you make to defeat the opposing party's position?
+Do not use prefixes like 'Your Honour', just write the counterargument directly.
+Express your argument in at most 10 sentences, focusing on the legal reasoning and factual basis.
+"""
+
     # Develop each seed into a full counterargument
     for i, seed in enumerate(seeds):
         challenge_type = seed.get("challenge_type", "policy")
@@ -546,7 +550,6 @@ Create a counterargument that includes:
 2. A detailed argument with multiple paragraphs explaining the legal challenge
 3. Specific legal authority with case names, citations, or statutory references
 4. A thorough factual basis explaining why this challenge applies to these facts
-5. An honest strength assessment (0.0-1.0)
 
 Write as if you are an experienced opposing counsel making this argument in court."""
 
@@ -573,7 +576,6 @@ Write as if you are an experienced opposing counsel making this argument in cour
                 "argument": ca_output.argument,
                 "authority": ca_output.supporting_authority,
                 "factual_basis": ca_output.factual_basis,
-                "strength": ca_output.strength,
                 "target_argument": target_arg
             })
             
@@ -587,7 +589,6 @@ Write as if you are an experienced opposing counsel making this argument in cour
                 "argument": f"The argument faces a {challenge_type} challenge based on {description}",
                 "authority": "Applicable legal principles",
                 "factual_basis": "Further analysis required to establish factual basis.",
-                "strength": 0.6,
                 "target_argument": target_arg
             })
     
@@ -638,8 +639,12 @@ async def rebuttal_generator_node(state: CounterArgumentState) -> CounterArgumen
     
     party_context = ""
     if party_represented:
-        party_context = f"\n\nCRITICAL PERSPECTIVE: You are now back to representing {party_represented}. The counterarguments were made by opposing counsel. Generate rebuttals that defend {party_represented}'s position and refute the opposing party's challenges. Frame your rebuttals from {party_represented}'s perspective and interests."
-    
+        party_context = f"""You are now defending {party_represented}'s position against the opposing party's counterarguments. 
+Frame your rebuttals from {party_represented}'s perspective and interests. What arguments would you make to defend {party_represented} against these challenges?
+Do not use prefixes like 'Your Honour', just write the rebuttal directly.
+Express your argument in at most 10 sentences, focusing on the legal reasoning and factual basis.
+"""
+
     # Generate rebuttals for each counterargument
     for i, ca in enumerate(counterarguments):
         ca_title = ca.get("title", "")
@@ -704,11 +709,6 @@ Write as if you are defending your position in court against this challenge."""
             })
     
     state["generated_rebuttals"] = all_rebuttals
-    
-    # Calculate quality metrics
-    if counterarguments:
-        avg_strength = sum(ca.get("strength", 0.5) for ca in counterarguments) / len(counterarguments)
-        state["analysis_quality"] = avg_strength
     
     if all_rebuttals:
         # Simple rebuttal quality based on content length and authority presence
