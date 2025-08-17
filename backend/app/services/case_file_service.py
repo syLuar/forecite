@@ -20,11 +20,98 @@ from app.tools.neo4j_tools import get_chunk_by_id
 from datetime import datetime
 import logging
 
-import logging
-from datetime import datetime
-
 logger = logging.getLogger(__name__)
 
+class DocumentService:
+    """Service for managing documents."""
+
+    @staticmethod
+    def get_document_by_id(document_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a document by its ID using Neo4j.
+        
+        This method looks for a Chunk node with the given ID and returns
+        comprehensive document and chunk information.
+        
+        Args:
+            document_id: The unique ID of the chunk/document
+            
+        Returns:
+            Dictionary containing document and chunk data, or None if not found
+        """
+        try:
+            from app.tools.neo4j_tools import get_session
+            from neo4j.exceptions import Neo4jError
+            
+            with get_session() as session:
+                query = """
+                MATCH (chunk:Chunk {id: $document_id})-[:PART_OF]->(doc:Document)
+                OPTIONAL MATCH (chunk)-[:REFERENCES_CHUNK]->(referenced_chunk:Chunk)
+                OPTIONAL MATCH (referencing_chunk:Chunk)-[:REFERENCES_CHUNK]->(chunk)
+                RETURN chunk.id as chunk_id,
+                       chunk.text as text,
+                       chunk.summary as summary,
+                       chunk.chunk_index as chunk_index,
+                       chunk.statutes as statutes,
+                       chunk.courts as courts,
+                       chunk.cases as cases,
+                       chunk.concepts as concepts,
+                       chunk.judges as judges,
+                       chunk.holdings as holdings,
+                       chunk.facts as facts,
+                       chunk.legal_tests as legal_tests,
+                       chunk.chunk_references as chunk_references,
+                       collect(DISTINCT referenced_chunk.id) as references_outgoing,
+                       collect(DISTINCT referencing_chunk.id) as references_incoming,
+                       doc.source as document_source,
+                       doc.citation as document_citation,
+                       doc.parties as parties,
+                       doc.year as document_year,
+                       doc.jurisdiction as jurisdiction,
+                       doc.type as document_type,
+                       doc.court_level as court_level
+                """
+                
+                result = session.run(query, {"document_id": document_id})
+                record = result.single()
+                
+                if record:
+                    # Structure the return data similar to vector_search results
+                    return {
+                        "document_id": record["chunk_id"],
+                        "chunk_id": record["chunk_id"],
+                        "text": record["text"],
+                        "summary": record["summary"],
+                        "chunk_index": record["chunk_index"],
+                        "statutes": record["statutes"] or [],
+                        "courts": record["courts"] or [],
+                        "cases": record["cases"] or [],
+                        "concepts": record["concepts"] or [],
+                        "judges": record["judges"] or [],
+                        "holdings": record["holdings"] or [],
+                        "facts": record["facts"] or [],
+                        "legal_tests": record["legal_tests"] or [],
+                        "chunk_references": record["chunk_references"] or [],
+                        "references_outgoing": [ref for ref in record["references_outgoing"] if ref],
+                        "references_incoming": [ref for ref in record["references_incoming"] if ref],
+                        "document_source": record["document_source"],
+                        "citation": record["document_citation"],
+                        "title": record["document_citation"],  # Use citation as title for compatibility
+                        "year": record["document_year"],
+                        "jurisdiction": record["jurisdiction"],
+                        "document_type": record["document_type"],
+                        "parties": record["parties"] or [],
+                        "court_level": record["court_level"],
+                    }
+                
+                return None
+                
+        except Neo4jError as e:
+            logger.error(f"Neo4j error in get_document_by_id: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in get_document_by_id: {e}")
+            return None
 
 class CaseFileService:
     """Service for managing case files and their documents."""
@@ -212,18 +299,37 @@ class CaseFileService:
                 db.query(CaseFileDocument)
                 .filter(
                     CaseFileDocument.case_file_id == case_file_id,
-                    CaseFileDocument.document_id == document_data["document_id"],
+                    CaseFileDocument.document_id == document_data.get("document_id", document_data.get("chunk_id")),
                 )
                 .first()
             )
 
             if existing:
                 return True  # Document already exists
+            
+            # Handle case where document_id is not provided but chunk_id is
+            if "document_id" not in document_data and "chunk_id" in document_data:
+                # Use chunk_id as document_id
+                document_data["document_id"] = document_data["chunk_id"]
+                
+                # Get additional document data from Neo4j
+                neo4j_data = DocumentService.get_document_by_id(document_data["document_id"])
+                if neo4j_data:
+                    # Merge Neo4j data with provided data, prioritizing provided data
+                    for key, value in neo4j_data.items():
+                        if key not in document_data:
+                            document_data[key] = value
+                else:
+                    logger.warning(f"Could not find document data for chunk_id: {document_data['chunk_id']}")
+
+            citation = document_data["citation"]
+            if "parties" in document_data and document_data["parties"]:
+                citation = " vs ".join(document_data["parties"])
 
             document = CaseFileDocument(
                 case_file_id=case_file_id,
                 document_id=document_data["document_id"],
-                citation=document_data["citation"],
+                citation=citation,
                 title=document_data["title"],
                 year=document_data.get("year"),
                 jurisdiction=document_data.get("jurisdiction"),
@@ -525,11 +631,11 @@ class MootCourtSessionService:
                     research_comprehensiveness=research_comprehensiveness,
                     rebuttal_quality=rebuttal_quality,
                     execution_time=execution_time,
+                    created_at=datetime.utcnow(),  # Explicitly set created_at
                 )
                 
                 db.add(session)
-                db.commit()
-                db.refresh(session)
+                db.flush()  # To get the ID and ensure server defaults are applied
                 
                 return session.id
                 

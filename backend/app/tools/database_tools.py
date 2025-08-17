@@ -97,7 +97,7 @@ class CaseFileResult(BaseModel):
 class DocumentResult(BaseModel):
     """Result model for document operations."""
     
-    document_id: str
+    chunk_id: str
     case_file_id: int
     success: bool = True
     message: Optional[str] = None
@@ -378,14 +378,8 @@ class LegalDatabaseTools:
     def add_document_to_case_file(
         self,
         case_file_id: int,
-        document_id: str,
-        citation: str,
-        title: str,
-        year: Optional[int] = None,
-        jurisdiction: Optional[str] = None,
+        chunk_id: str,
         relevance_score_percent: Optional[float] = None,
-        key_holdings: Optional[List[str]] = None,
-        selected_chunks: Optional[List[Dict[str, Any]]] = None,
         user_notes: Optional[str] = None,
     ) -> DocumentResult:
         """
@@ -393,15 +387,9 @@ class LegalDatabaseTools:
         
         Args:
             case_file_id: ID of the case file
-            document_id: Unique identifier for the document (chunk ID)
-            citation: Legal citation for the document
-            title: Document title or case name
-            year: Year of the document
-            jurisdiction: Jurisdiction of the document
-            relevance_score_percent: Relevance score (0-100)
-            key_holdings: List of key legal holdings
-            selected_chunks: Relevant text chunks from the document
-            user_notes: Research notes about this document
+            chunk_id: Unique identifier for the document (chunk ID)
+            relevance_score_percent: Optional relevance score from 0-100
+            user_notes: Optional notes from the user about the document
             
         Returns:
             Result with addition status
@@ -412,24 +400,18 @@ class LegalDatabaseTools:
             "step_id": step_id,
             "status": "in_progress",
             "brief_description": "Adding document to case file",
-            "description": f"Adding document {citation} to case file {case_file_id}"
+            "description": f"Adding document {chunk_id} to case file {case_file_id}"
         })
         
         start_time = time.time()
         
         try:
-            logger.info(f"Adding document {citation} to case file {case_file_id}")
-            
+            logger.info(f"Adding document {chunk_id} to case file {case_file_id}")
+
             document_data = {
-                "document_id": document_id,
-                "citation": citation,
-                "title": title,
-                "year": year,
-                "jurisdiction": jurisdiction,
-                "relevance_score_percent": relevance_score_percent,
-                "key_holdings": key_holdings or [],
-                "selected_chunks": selected_chunks or [],
+                "chunk_id": chunk_id,
                 "user_notes": user_notes,
+                "relevance_score_percent": relevance_score_percent,
             }
             
             success = CaseFileService.add_document_to_case_file(
@@ -445,27 +427,27 @@ class LegalDatabaseTools:
                     "description": f"Failed to add document to case file {case_file_id} (case file may not exist)"
                 })
                 return DocumentResult(
-                    document_id=document_id,
+                    chunk_id=chunk_id,
                     case_file_id=case_file_id,
                     success=False,
                     message=f"Failed to add document to case file {case_file_id} (case file may not exist)"
                 )
             
-            logger.info(f"Successfully added document {citation} to case file {case_file_id}")
+            logger.info(f"Successfully added document {chunk_id} to case file {case_file_id}")
             
             execution_time = time.time() - start_time
             writer({
                 "step_id": step_id,
                 "status": "complete",
                 "brief_description": "Document added",
-                "description": f"Added document '{citation}' to case file {case_file_id} in {execution_time:.2f}s"
+                "description": f"Added document '{chunk_id}' to case file {case_file_id} in {execution_time:.2f}s"
             })
             
             return DocumentResult(
-                document_id=document_id,
+                chunk_id=chunk_id,
                 case_file_id=case_file_id,
                 success=True,
-                message=f"Document '{citation}' added to case file {case_file_id}"
+                message=f"Document '{chunk_id}' added to case file {case_file_id}"
             )
             
         except Exception as e:
@@ -477,7 +459,7 @@ class LegalDatabaseTools:
                 "description": f"Failed to add document: {str(e)}"
             })
             return DocumentResult(
-                document_id=document_id,
+                chunk_id=chunk_id,
                 case_file_id=case_file_id,
                 success=False,
                 message=f"Failed to add document: {str(e)}"
@@ -486,7 +468,7 @@ class LegalDatabaseTools:
     def remove_document_from_case_file(
         self,
         case_file_id: int,
-        document_id: str
+        chunk_id: str
     ) -> DocumentResult:
         """
         Remove a document from a case file.
@@ -499,34 +481,34 @@ class LegalDatabaseTools:
             Result with removal status
         """
         try:
-            logger.info(f"Removing document {document_id} from case file {case_file_id}")
+            logger.info(f"Removing document {chunk_id} from case file {case_file_id}")
             
             success = CaseFileService.remove_document_from_case_file(
                 case_file_id=case_file_id,
-                document_id=document_id
+                chunk_id=chunk_id
             )
             
             if not success:
                 return DocumentResult(
-                    document_id=document_id,
+                    chunk_id=chunk_id,
                     case_file_id=case_file_id,
                     success=False,
-                    message=f"Document {document_id} not found in case file {case_file_id}"
+                    message=f"Document {chunk_id} not found in case file {case_file_id}"
                 )
             
-            logger.info(f"Successfully removed document {document_id} from case file {case_file_id}")
+            logger.info(f"Successfully removed document {chunk_id} from case file {case_file_id}")
             
             return DocumentResult(
-                document_id=document_id,
+                chunk_id=chunk_id,
                 case_file_id=case_file_id,
                 success=True,
-                message=f"Document {document_id} removed from case file {case_file_id}"
+                message=f"Document {chunk_id} removed from case file {case_file_id}"
             )
             
         except Exception as e:
             logger.error(f"Error removing document from case file: {e}", exc_info=True)
             return DocumentResult(
-                document_id=document_id,
+                chunk_id=chunk_id,
                 case_file_id=case_file_id,
                 success=False,
                 message=f"Failed to remove document: {str(e)}"
@@ -1146,11 +1128,8 @@ def create_case_file_tool(
 
 def add_document_tool(
     case_file_id: int,
-    document_id: str,
-    citation: str,
-    title: str,
+    chunk_id: str,
     relevance_score_percent: Optional[float] = None,
-    key_holdings: Optional[List[str]] = None,
     user_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -1159,13 +1138,9 @@ def add_document_tool(
     This is a simplified wrapper for easy use in ReAct agents.
     
     Args:
-        case_file_id: ID of the case file
-        document_id: Unique identifier for the document
-        citation: Legal citation
-        title: Document title
-        relevance_score_percent: Relevance score (0-100)
-        key_holdings: Key legal holdings
-        user_notes: Research notes
+        case_file_id: Unique identifier for the case file
+        chunk_id: Unique identifier for the document chunk
+        user_notes: Optional notes from the user about the document
         
     Returns:
         Dictionary with success status and message
@@ -1173,12 +1148,9 @@ def add_document_tool(
     tools = LegalDatabaseTools()
     result = tools.add_document_to_case_file(
         case_file_id=case_file_id,
-        document_id=document_id,
-        citation=citation,
-        title=title,
+        chunk_id=chunk_id,
         relevance_score_percent=relevance_score_percent,
-        key_holdings=key_holdings,
-        user_notes=user_notes,
+        user_notes=user_notes
     )
     return result.model_dump()
 

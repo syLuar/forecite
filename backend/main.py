@@ -19,6 +19,8 @@ from google import genai
 import json
 import asyncio
 
+from langchain_core.messages import AIMessage
+
 from langgraph.errors import GraphRecursionError
 
 # from app.core.config import settings  # Uncomment when needed
@@ -54,7 +56,7 @@ from app.models.schemas import (
 )
 from app.graphs import research_graph, drafting_graph, counterargument_graph, research_agent, ResearchState, DraftingState, CounterArgumentState
 from app.tools.neo4j_tools import close_neo4j_connection
-from app.services.case_file_service import CaseFileService, ArgumentDraftService, MootCourtSessionService
+from app.services.case_file_service import CaseFileService, ArgumentDraftService, MootCourtSessionService, CaseFileNoteService
 from app.core.database import create_tables
 
 from app.core.config import settings
@@ -267,18 +269,32 @@ async def conduct_research(request: ConductResearchRequest):
         logger.info(f"Conducting research for {issue_count_text}")
 
         # Define response processor for streaming
-        async def process_research_response(research_notes):
+        async def process_research_response(response_state):
             execution_time = time.time() - start_time
 
-            # Get updated case file to count added documents and notes
-            updated_case_file = CaseFileService.get_case_file(request.case_file_id)
-            original_doc_count = len(case_file_data.get('documents', []))
-            original_note_count = len(case_file_data.get('notes', []))
-            new_doc_count = len(updated_case_file.get('documents', []))
-            new_note_count = len(updated_case_file.get('notes', []))
-            
-            documents_added = max(0, new_doc_count - original_doc_count)
-            notes_added = max(0, new_note_count - original_note_count)
+            messages = response_state.get("messages", [])
+
+            if messages:
+                last_message = messages[-1]
+
+                if isinstance(last_message, AIMessage) and last_message.content:
+                    CaseFileNoteService.add_note(
+                        author_type="ai",
+                        author_name="Forecite AI",
+                        case_file_id=request.case_file_id,
+                        content=last_message.content,
+                        note_type="strategy",
+                    )
+
+                # Get updated case file to count added documents and notes
+                updated_case_file = CaseFileService.get_case_file(request.case_file_id)
+                original_doc_count = len(case_file_data.get('documents', []))
+                original_note_count = len(case_file_data.get('notes', []))
+                new_doc_count = len(updated_case_file.get('documents', []))
+                new_note_count = len(updated_case_file.get('notes', []))
+                
+                documents_added = max(0, new_doc_count - original_doc_count)
+                notes_added = max(0, new_note_count - original_note_count)
 
             response = ConductResearchResponse(
                 documents_added=documents_added,
@@ -747,8 +763,6 @@ async def add_note_to_case_file(
 ):
     """Add a note to a case file."""
     try:
-        from app.services.case_file_service import CaseFileNoteService
-        
         note_id = CaseFileNoteService.add_note(
             case_file_id=case_file_id,
             content=request.content,
@@ -782,8 +796,6 @@ async def update_case_file_note(
 ):
     """Update a note in a case file."""
     try:
-        from app.services.case_file_service import CaseFileNoteService
-        
         success = CaseFileNoteService.update_note(
             note_id=note_id,
             content=request.content,
@@ -813,8 +825,6 @@ async def update_case_file_note(
 async def delete_case_file_note(case_file_id: int, note_id: int):
     """Delete a note from a case file."""
     try:
-        from app.services.case_file_service import CaseFileNoteService
-        
         success = CaseFileNoteService.delete_note(note_id=note_id)
 
         if not success:
@@ -1183,7 +1193,10 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
         async def process_counterargument_response(final_state):
             # Extract results from the final state
             counterarguments = final_state.get("generated_counterarguments", [])
-            rebuttals = final_state.get("counterargument_rebuttals", [])
+            
+            # Handle both V1 and V2 rebuttal formats
+            rebuttals_v1 = final_state.get("counterargument_rebuttals", [])  # V1 format: [[reb1, reb2], [reb3]]
+            rebuttals_v2 = final_state.get("generated_rebuttals", [])        # V2 format: [reb1, reb2, reb3] with counterargument_index
             
             # Convert to response format
             response_counterarguments = []
@@ -1197,15 +1210,41 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
                 ))
             
             response_rebuttals = []
-            for rebuttal_group in rebuttals:
-                group = []
-                for reb in rebuttal_group:
-                    group.append(CounterArgumentRebuttal(
-                        title=reb.get("title", ""),
+            
+            # Handle V1 format (list of lists)
+            if rebuttals_v1:
+                for rebuttal_group in rebuttals_v1:
+                    group = []
+                    for reb in rebuttal_group:
+                        group.append(CounterArgumentRebuttal(
+                            title=reb.get("title", ""),
+                            content=reb.get("content", ""),
+                            authority=reb.get("authority", "")
+                        ))
+                    response_rebuttals.append(group)
+            
+            # Handle V2 format (flat list with counterargument_index)
+            elif rebuttals_v2:
+                # Group rebuttals by counterargument_index
+                rebuttal_groups = {}
+                for reb in rebuttals_v2:
+                    ca_index = reb.get("counterargument_index", 0)
+                    if ca_index not in rebuttal_groups:
+                        rebuttal_groups[ca_index] = []
+                    
+                    # Map V2 fields to V1 format
+                    rebuttal_groups[ca_index].append(CounterArgumentRebuttal(
+                        title=reb.get("strategy", ""),  # V2 uses "strategy" field
                         content=reb.get("content", ""),
                         authority=reb.get("authority", "")
                     ))
-                response_rebuttals.append(group)
+                
+                # Convert to ordered list (ensure we have rebuttals for each counterargument)
+                for i in range(len(counterarguments)):
+                    if i in rebuttal_groups:
+                        response_rebuttals.append(rebuttal_groups[i])
+                    else:
+                        response_rebuttals.append([])  # Empty list if no rebuttals for this counterargument
             
             execution_time = time.time() - start_time
             
@@ -1521,6 +1560,7 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
             }
             yield f"data: {json.dumps(final_chunk, default=str)}\n\n"
         except Exception as e:
+            raise
             error_chunk = {
                 "streaming_complete": True,
                 "error": str(e)

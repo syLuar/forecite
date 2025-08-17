@@ -40,6 +40,7 @@ class RetrievedDocument(BaseModel):
     summary: Optional[str] = None
     document_source: str
     document_citation: Optional[str] = None
+    parties: Optional[List[str]] = None
     document_year: Optional[int] = None
     jurisdiction: Optional[str] = None
     document_type: Optional[str] = None
@@ -402,7 +403,7 @@ class MootCourtSessionListItem(BaseModel):
     
     id: int
     title: str
-    created_at: datetime
+    created_at: Optional[datetime] = None
     draft_title: Optional[str] = None
     counterargument_count: int
     counterargument_strength: Optional[float] = None
@@ -424,7 +425,7 @@ class SavedMootCourtSession(BaseModel):
     research_comprehensiveness: Optional[float] = None
     rebuttal_quality: Optional[float] = None
     execution_time: Optional[float] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
 
 # Research Agent API Models

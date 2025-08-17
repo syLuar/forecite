@@ -78,6 +78,7 @@ def get_chunk_by_id(chunk_id: str) -> Optional[Dict[str, Any]]:
                    doc.source as document_source,
                    doc.citation as document_citation,
                    doc.year as document_year,
+                   doc.parties as parties,
                    doc.jurisdiction as jurisdiction,
                    doc.type as document_type,
                    doc.court_level as court_level
@@ -178,6 +179,7 @@ async def vector_search(
                    collect(DISTINCT referencing_chunk.id) as references_incoming,
                    doc.source as document_source,
                    doc.citation as document_citation,
+                   doc.parties as parties,
                    doc.year as document_year,
                    doc.jurisdiction as jurisdiction,
                    doc.type as document_type,
@@ -245,6 +247,7 @@ def fulltext_search(
                        collect(DISTINCT referencing_chunk.id) as references_incoming,
                        doc.source as document_source,
                        doc.citation as document_citation,
+                       doc.parties as parties,
                        doc.year as document_year,
                        doc.jurisdiction as jurisdiction,
                        doc.type as document_type,
@@ -259,6 +262,7 @@ def fulltext_search(
                 return_clause = """
                 RETURN doc.source as document_source,
                        doc.citation as document_citation,
+                       doc.parties as parties,
                        doc.full_text as full_text,
                        doc.year as document_year,
                        doc.jurisdiction as jurisdiction,
@@ -322,6 +326,7 @@ def find_case_citations(
                 RETURN doc.citation as citing_document,
                        doc.year as citing_year,
                        doc.jurisdiction as jurisdiction,
+                       doc.parties as parties,
                        doc.court_level as court_level,
                        doc.type as document_type,
                        'cited_by' as relationship_type
@@ -457,6 +462,7 @@ def find_legal_concepts(
             {where_clause}
             RETURN doc.citation as document_citation,
                    doc.year as document_year,
+                   doc.parties as parties,
                    doc.jurisdiction as jurisdiction,
                    doc.court_level as court_level,
                    chunk.summary as chunk_summary,
@@ -523,6 +529,7 @@ def find_similar_fact_patterns(
             WHERE fact_matches > 0
             RETURN doc.citation as document_citation,
                    doc.year as document_year,
+                   doc.parties as parties,
                    doc.jurisdiction as jurisdiction,
                    chunk.facts as facts,
                    chunk.holdings as holdings,
@@ -579,6 +586,7 @@ def find_legal_tests(
             UNWIND chunk.legal_tests as test
             RETURN DISTINCT test as legal_test,
                    doc.citation as source_document,
+                   doc.parties as parties,
                    doc.year as document_year,
                    doc.jurisdiction as jurisdiction,
                    doc.court_level as court_level
@@ -634,6 +642,7 @@ def find_judge_jurisprudence(
             {where_clause}
             RETURN doc.citation as document_citation,
                    doc.year as document_year,
+                   doc.parties as parties,
                    doc.jurisdiction as jurisdiction,
                    chunk.holdings as holdings,
                    chunk.concepts as concepts
@@ -710,6 +719,7 @@ def get_document_metadata(document_source: str) -> Dict[str, Any]:
             OPTIONAL MATCH (chunk:Chunk)-[:PART_OF]->(doc)
             RETURN doc.source as source,
                    doc.citation as citation,
+                   doc.parties as parties,
                    doc.type as document_type,
                    doc.year as year,
                    doc.jurisdiction as jurisdiction,
@@ -1057,6 +1067,7 @@ def get_enhanced_chunk_context(chunk_id: str) -> Dict[str, Any]:
                    target.holdings as holdings,
                    target.legal_tests as legal_tests,
                    doc.citation as document_citation,
+                   doc.parties as parties,
                    doc.year as document_year,
                    doc.jurisdiction as jurisdiction,
                    collect(DISTINCT {

@@ -258,7 +258,7 @@ Text to analyze:
                 # Primary format from scraped parties
                 scraped_parties = scraped_metadata.get('parties', [])
                 if scraped_parties and len(scraped_parties) >= 2:
-                    primary_citation = f"({scraped_parties[0]}) vs ({scraped_parties[1]})"
+                    primary_citation = f"{scraped_parties[0]} vs {scraped_parties[1]}"
                     citation_formats_list.append(primary_citation)
                 
                 # Secondary format from scraped citation
@@ -270,7 +270,7 @@ Text to analyze:
             
             # 2. Fallback to LLM-extracted parties
             if parties and len(parties) >= 2:
-                primary_citation = f"({parties[0]}) vs ({parties[1]})"
+                primary_citation = f"{parties[0]} vs {parties[1]}"
                 citation_formats_list.append(primary_citation)
             
             # 3. Secondary format: [Year] SGCA [Num] - from filename
