@@ -78,6 +78,12 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown tasks."""
     # Startup
     logger.info("Starting Legal Research Assistant Backend")
+    logger.info(f"Environment: {settings.environment}")
+    
+    # Log database configuration
+    database_url = settings.get_database_url()
+    db_type = "PostgreSQL" if database_url.startswith("postgresql") else "SQLite"
+    logger.info(f"Using {db_type} database")
 
     # Initialize database tables
     try:
@@ -85,6 +91,12 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
+        if database_url.startswith("postgresql"):
+            logger.error("PostgreSQL connection failed. Please ensure:")
+            logger.error("1. PostgreSQL server is running")
+            logger.error("2. Database exists and user has CREATE privileges")
+            logger.error("3. Connection parameters are correct")
+            logger.error("4. Run scripts/postgresql_setup.sql as PostgreSQL superuser if needed")
         raise
 
     yield

@@ -1,25 +1,43 @@
 """
-SQLite database configuration and session management.
+Database configuration and session management.
 
 This module provides database connectivity and session management for
-storing case files and generated legal argument drafts.
+storing case files and generated legal argument drafts. Supports both
+PostgreSQL (production) and SQLite (development) based on environment settings.
 """
 
 import os
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
+from .config import settings
 
-# Database URL - SQLite file in the project root
-DATABASE_URL = "sqlite:///./legal_assistant.db"
+logger = logging.getLogger(__name__)
+
+# Get database URL based on environment
+DATABASE_URL = settings.get_database_url()
+logger.info(f"Using database: {'PostgreSQL' if DATABASE_URL.startswith('postgresql') else 'SQLite'} (Environment: {settings.environment})")
+
+# Create engine with appropriate connection arguments
+def get_engine_config():
+    """Get engine configuration based on database type."""
+    if DATABASE_URL.startswith("sqlite"):
+        return {
+            "connect_args": {"check_same_thread": False},  # For SQLite
+            "echo": settings.debug,
+        }
+    else:  # PostgreSQL
+        return {
+            "echo": settings.debug,
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_pre_ping": True,  # Validate connections before use
+        }
 
 # Create engine
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},  # For SQLite
-    echo=False,  # Set to True for SQL query logging
-)
+engine = create_engine(DATABASE_URL, **get_engine_config())
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

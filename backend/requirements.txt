@@ -38,6 +38,7 @@ pdfplumber==0.11.7
 beautifulsoup4==4.12.2
 requests==2.31.0
 
-# SQLite database ORM
+# SQLite and PostgreSQL database ORM
 sqlalchemy>=2.0.25
 alembic>=1.13.0
+psycopg2-binary==2.9.10 # PostgreSQL adapter

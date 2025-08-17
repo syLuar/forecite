@@ -41,12 +41,34 @@ class Settings(BaseSettings):
     chunk_size: int = Field(1000, env="CHUNK_SIZE")
     chunk_overlap: int = Field(200, env="CHUNK_OVERLAP")
 
+    # Database Configuration
+    database_url: Optional[str] = Field(None, env="DATABASE_URL")
+    postgres_user: str = Field("postgres", env="POSTGRES_USER")
+    postgres_password: str = Field("", env="POSTGRES_PASSWORD")
+    postgres_host: str = Field("localhost", env="POSTGRES_HOST")
+    postgres_port: int = Field(5432, env="POSTGRES_PORT")
+    postgres_db: str = Field("legal_assistant", env="POSTGRES_DB")
+
     # Application Configuration
     api_version: str = Field("v1", env="API_VERSION")
     debug: bool = Field(False, env="DEBUG")
 
+    environment: str = Field("development", env="ENVIRONMENT")
+
     def model_post_init(self, __context):
         self.llm_config = self._load_config(self.llm_config_path)
+
+    def get_database_url(self) -> str:
+        """Get the database URL based on environment and configuration."""
+        # If DATABASE_URL is explicitly set, use it
+        if self.database_url:
+            return self.database_url
+        
+        # Use PostgreSQL for production environments, SQLite for development/testing
+        if self.environment.lower() in ["production", "prod", "staging", "stage"]:
+            return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        else:
+            return "sqlite:///./legal_assistant.db"
 
     def _load_config(self, path: Path) -> dict:
         """Load configuration from a YAML file."""
