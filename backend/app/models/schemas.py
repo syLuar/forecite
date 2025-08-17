@@ -262,6 +262,7 @@ class AddDocumentToCaseFileRequest(BaseModel):
 
     document_id: str
     citation: str
+    parties: Optional[List[str]] = None
     title: str
     year: Optional[int] = None
     jurisdiction: Optional[str] = None

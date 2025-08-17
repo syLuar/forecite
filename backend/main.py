@@ -127,19 +127,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-# Create FastAPI application
-
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React frontend URL
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
-
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """Global exception handler for unexpected errors."""
