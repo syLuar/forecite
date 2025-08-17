@@ -5,20 +5,20 @@ embeddings:
 
 ingestion:
   entity_extraction: 
-    model: "gpt-5-nano"
+    model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
-    model_provider: "openai"
+    model_provider: "google"
   summary_generation: 
-    model: "gpt-5-mini"
+    model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
-    model_provider: "openai"
+    model_provider: "google"
   metadata_extraction: 
-    model: "gpt-5-nano"
+    model: "gemini-2.5-flash-lite"
     temperature: 0.2
     thinking_budget: 0
-    model_provider: "openai"
+    model_provider: "google"
 
 main:
   drafting_graph: 
@@ -37,10 +37,11 @@ main:
     #     temperature: 0.3
     #     model_provider: "openai"
       final_drafter_node:
-        model: "gemini-2.5-flash"  # Use stronger model for critical assessment
+        model: "gpt-5-mini"  # Use stronger model for critical assessment
         temperature: 0.5
-        thinking_budget: 200
-        model_provider: "google"
+        reasoning:
+          effort: low
+        model_provider: "openai"
   research_graph: 
     model: "gemini-2.5-flash-lite"
     temperature: 0.2
@@ -66,17 +67,29 @@ main:
     #     model: "gemini-2.5-flash-lite"  # Creative thinking for finding vulnerabilities
     #     temperature: 0.3
     #     model_provider: "google"
-    #   counterargument_developer_node:
-    #     model: "gpt-4o"  # Strong reasoning for developing arguments
-    #     temperature: 0.2
-    #     model_provider: "openai"
-      rebuttal_generator_node:
-        model: "gemini-2.5-flash"  # Strong reasoning for rebuttals
-        thinking_budget: 200
+      challenge_identifier_node:
+        model: "gpt-5-mini"  # Strong reasoning for identifying challenges
         temperature: 0.2
-        model_provider: "google"
+        reasoning:
+          effort: minimal
+        # thinking_budget: 200
+        model_provider: "openai"
+      counterargument_developer_node:
+        model: "gpt-5-mini"  # Strong reasoning for developing arguments
+        temperature: 0.2
+        reasoning:
+          effort: minimal
+        # thinking_budget: 200
+        model_provider: "openai"
+      rebuttal_generator_node:
+        model: "gpt-5-mini"  # Strong reasoning for rebuttals
+        # thinking_budget: 200
+        temperature: 0.2
+        reasoning:
+          effort: minimal
+        model_provider: "openai"
   research_agent:
     model: "gemini-2.5-flash"
     temperature: 0.2
-    thinking_budget: 0
+    thinking_budget: 128
     model_provider: "google"
