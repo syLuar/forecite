@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "jsx": "react",
+    "lib": ["DOM", "ESNext"],
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "types": ["node", "@docusaurus/theme-classic"]
+  },
+  "include": ["src/", "docusaurus.config.ts"],
+  "exclude": [
+    "node_modules",
+    "build",
+    "dist",
+    ".docusaurus"
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "pluginId": "default",
+  "version": "current",
+  "label": "Next",
+  "banner": null,
+  "badge": false,
+  "noIndex": false,
+  "className": "docs-version-current",
+  "isLast": true,
+  "docsSidebars": {
+    "tutorialSidebar": [
+      {
+        "type": "link",
+        "label": "Welcome to Forecite",
+        "href": "/introduction",
+        "docId": "introduction",
+        "unlisted": false
+      },
+      {
+        "type": "link",
+        "label": "User Guide",
+        "href": "/user-guide",
+        "docId": "user-guide",
+        "unlisted": false
+      },
+      {
+        "type": "link",
+        "label": "Features",
+        "href": "/features",
+        "docId": "features",
+        "unlisted": false
+      }
+    ]
+  },
+  "docs": {
+    "features": {
+      "id": "features",
+      "title": "Features",
+      "description": "Discover the powerful features that make Forecite your ultimate legal research companion. 🚀",
+      "sidebar": "tutorialSidebar"
+    },
+    "introduction": {
+      "id": "introduction",
+      "title": "Welcome to Forecite",
+      "description": "Forecite is an AI-powered legal research assistant that helps legal professionals conduct intelligent research and build stronger cases.",
+      "sidebar": "tutorialSidebar"
+    },
+    "user-guide": {
+      "id": "user-guide",
+      "title": "User Guide",
+      "description": "This guide covers the essential features of Forecite and how to use them effectively. 🎯",
+      "sidebar": "tutorialSidebar"
+    }
+  }
+}

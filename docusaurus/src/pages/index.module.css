@@ -1,0 +1,75 @@
+/* src/pages/index.module.css */
+.heroBanner {
+  padding: 4rem 0;
+  text-align: center;
+  background: linear-gradient(135deg, #1e4999 0%, #1d4ed8 100%);
+  color: white;
+}
+
+.heroLogo {
+  width: 120px;
+  height: auto;
+  margin-bottom: 1.5rem;
+}
+
+.buttons {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.features {
+  padding: 4rem 0;
+  background-color: #fefefe;
+}
+
+.features h2 {
+  text-align: center;
+  margin-bottom: 3rem;
+  color: #1e4999;
+  font-size: 2.5rem;
+}
+
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.feature {
+  text-align: center;
+  padding: 1.5rem;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.featureIcon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.feature h3 {
+  color: #1e4999;
+  margin-bottom: 1rem;
+}
+
+.feature p {
+  color: #666;
+  line-height: 1.6;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 996px) {
+  .featuresGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .featuresGrid {
+    grid-template-columns: 1fr;
+  }
+}

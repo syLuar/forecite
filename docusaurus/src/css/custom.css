@@ -1,0 +1,87 @@
+/* src/css/custom.css */
+:root {
+  --ifm-color-primary: #1e4999;
+  --ifm-color-primary-dark: #1d4ed8;
+  --ifm-color-primary-darker: #1e40af;
+  --ifm-color-primary-darkest: #1e3a8a;
+  --ifm-color-primary-light: #6366f1;
+  --ifm-color-primary-lighter: #818cf8;
+  --ifm-color-primary-lightest: #a5b4fc;
+  --ifm-background-color: #fefefe;
+  --ifm-navbar-background-color: #1e4999;
+  --ifm-navbar-link-color: #ffffff;
+  --ifm-navbar-link-hover-color: #a5b4fc;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #6366f1;
+  --ifm-color-primary-dark: #4f46e5;
+  --ifm-color-primary-darker: #4338ca;
+  --ifm-color-primary-darkest: #3730a3;
+  --ifm-color-primary-light: #818cf8;
+  --ifm-color-primary-lighter: #93c5fd;
+  --ifm-color-primary-lightest: #bfdbfe;
+  --ifm-background-color: #1a1a1a;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+.navbar {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.navbar__title,
+.navbar__link {
+  color: var(--ifm-navbar-link-color);
+}
+
+.navbar__link:hover {
+  color: var(--ifm-navbar-link-hover-color);
+}
+
+.hero {
+  background: linear-gradient(135deg, var(--ifm-color-primary) 0%, var(--ifm-color-primary-dark) 100%);
+  color: white;
+}
+
+.hero__title,
+.hero__subtitle {
+  color: white;
+}
+
+.footer {
+  background-color: var(--ifm-color-primary-darkest);
+}
+
+.footer__link-item {
+  color: var(--ifm-color-primary-lightest);
+}
+
+.footer__link-item:hover {
+  color: white;
+}
+
+/* Search styling */
+.DocSearch {
+  --docsearch-primary-color: var(--ifm-color-primary);
+  --docsearch-text-color: var(--ifm-font-color-base);
+  --docsearch-spacing: 12px;
+  --docsearch-icon-stroke-width: 1.4;
+  --docsearch-highlight-color: var(--ifm-color-primary);
+  --docsearch-muted-color: var(--ifm-color-secondary-darkest);
+  --docsearch-container-background: rgba(94, 100, 112, 0.7);
+  --docsearch-modal-background: var(--ifm-background-color);
+  --docsearch-searchbox-background: var(--ifm-background-color);
+  --docsearch-searchbox-focus-background: var(--ifm-color-black);
+  --docsearch-hit-color: var(--ifm-font-color-base);
+  --docsearch-hit-active-color: var(--ifm-color-white);
+  --docsearch-hit-background: var(--ifm-color-emphasis-100);
+  --docsearch-footer-background: var(--ifm-background-surface-color);
+}
+
+[data-theme='dark'] .DocSearch {
+  --docsearch-modal-background: var(--ifm-background-color);
+  --docsearch-searchbox-background: var(--ifm-background-surface-color);
+  --docsearch-hit-background: var(--ifm-color-emphasis-100);
+}

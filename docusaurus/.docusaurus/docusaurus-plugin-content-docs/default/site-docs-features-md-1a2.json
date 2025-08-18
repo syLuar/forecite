@@ -1,0 +1,19 @@
+{
+  "id": "features",
+  "title": "Features",
+  "description": "Discover the powerful features that make Forecite your ultimate legal research companion. 🚀",
+  "source": "@site/docs/features.md",
+  "sourceDirName": ".",
+  "slug": "/features",
+  "permalink": "/features",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "tutorialSidebar",
+  "previous": {
+    "title": "User Guide",
+    "permalink": "/user-guide"
+  }
+}

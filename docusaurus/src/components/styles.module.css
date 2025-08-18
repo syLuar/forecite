@@ -1,0 +1,158 @@
+/* src/components/styles.module.css */
+.demoContainer {
+    padding: 1rem;
+    border: 1px solid var(--ifm-color-emphasis-300);
+    border-radius: 8px;
+    margin: 1rem 0;
+  }
+  
+  .addCase {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  
+  .input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--ifm-color-emphasis-300);
+    border-radius: 4px;
+  }
+  
+  .button {
+    padding: 0.5rem 1rem;
+    background-color: var(--ifm-color-primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .button:hover {
+    background-color: var(--ifm-color-primary-darker);
+  }
+  
+  .caseList {
+    display: grid;
+    gap: 1rem;
+  }
+  
+  .caseItem {
+    padding: 1rem;
+    border: 1px solid var(--ifm-color-emphasis-300);
+    border-radius: 4px;
+  }
+  
+  .caseItem h3 {
+    margin: 0 0 0.5rem 0;
+  }
+  
+  .caseItem p {
+    margin: 0.25rem 0;
+    color: var(--ifm-color-emphasis-600);
+  }
+
+.mootCourtContainer {
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  margin: 1rem 0;
+}
+
+.newSession {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.sessionList {
+  display: grid;
+  gap: 1rem;
+}
+
+.sessionItem {
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+  background-color: var(--ifm-background-surface-color);
+}
+
+.research-demo,
+.drafting-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+}
+
+.research-input,
+.argument-input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+  font-family: var(--ifm-font-family-base);
+}
+
+.argument-type-select {
+  padding: 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+  background-color: var(--ifm-background-surface-color);
+}
+
+.enhance-button {
+  background-color: var(--ifm-color-success);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.enhance-button:hover {
+  background-color: var(--ifm-color-success-darker);
+}
+
+.timeline-demo {
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+}
+
+.timeline-events {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.timeline-event {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem;
+  border-left: 4px solid var(--ifm-color-primary);
+  background-color: var(--ifm-background-surface-color);
+}
+
+.event-date {
+  font-weight: bold;
+  min-width: 100px;
+}
+
+.event-title {
+  flex: 1;
+}
+
+.timeline-event.filing {
+  border-left-color: var(--ifm-color-primary);
+}
+
+.timeline-event.hearing {
+  border-left-color: var(--ifm-color-success);
+}
+
+.timeline-event.deadline {
+  border-left-color: var(--ifm-color-danger);
+}

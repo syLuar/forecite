@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Loader2, Send, X, Scale } from 'lucide-react';
+import { Search, Loader2, Send, X, Scale, HelpCircle } from 'lucide-react';
 import { LegalDocument } from '../../data/mockSearchData';
 import { SearchFilters as SearchFiltersType } from '../../utils/searchUtils';
 import { apiClient, StreamingCallbacks } from '../../services/api';
@@ -230,7 +230,18 @@ const SearchContent: React.FC = () => {
       <div className="max-w-6xl mx-auto">
         {/* Search Header */}
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Legal Research</h2>
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-3xl font-bold text-gray-900">Legal Research</h2>
+            <a
+              href="https://forecite.site/user-guide"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors border border-gray-300"
+              title="View User Guide"
+            >
+              <HelpCircle className="h-4 w-4 text-gray-600" />
+            </a>
+          </div>
           <p className="text-gray-600">
             Tap into our rich and real-time legal database
           </p>
