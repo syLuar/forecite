@@ -1,0 +1,23 @@
+{
+  "id": "user-guide",
+  "title": "User Guide",
+  "description": "This guide covers the essential features of Forecite and how to use them effectively. 🎯",
+  "source": "@site/docs/user-guide.md",
+  "sourceDirName": ".",
+  "slug": "/user-guide",
+  "permalink": "/user-guide",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "tutorialSidebar",
+  "previous": {
+    "title": "Welcome to Forecite",
+    "permalink": "/introduction"
+  },
+  "next": {
+    "title": "Features",
+    "permalink": "/features"
+  }
+}

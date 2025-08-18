@@ -1,0 +1,77 @@
+{
+  "/__docusaurus/debug-826": {
+    "__comp": "__comp---theme-debug-config-23-a-2ff",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    }
+  },
+  "/__docusaurus/debug/config-404": {
+    "__comp": "__comp---theme-debug-config-23-a-2ff",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    }
+  },
+  "/__docusaurus/debug/content-818": {
+    "__comp": "__comp---theme-debug-contentba-8-ce7",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    },
+    "allContent": "allContent---docs-docusaurus-debug-content-246-f36"
+  },
+  "/__docusaurus/debug/globalData-5d0": {
+    "__comp": "__comp---theme-debug-global-dataede-0fa",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    }
+  },
+  "/__docusaurus/debug/metadata-49a": {
+    "__comp": "__comp---theme-debug-site-metadata-68-e-3d4",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    }
+  },
+  "/__docusaurus/debug/registry-a1a": {
+    "__comp": "__comp---theme-debug-registry-679-501",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    }
+  },
+  "/__docusaurus/debug/routes-1e4": {
+    "__comp": "__comp---theme-debug-routes-946-699",
+    "__context": {
+      "plugin": "plugin---docs-docusaurus-debug-14-a-ea6"
+    }
+  },
+  "/-0f1": {
+    "__comp": "__comp---site-src-pages-index-tsx-1-df-d3e",
+    "__context": {
+      "plugin": "plugin---docs-948-eb1"
+    },
+    "config": "config---docs-5-e-9-4ea"
+  },
+  "/-5e1": {
+    "__comp": "__comp---theme-docs-root-5-e-9-0b6",
+    "__context": {
+      "plugin": "plugin---docs-6-d-2-9b1"
+    }
+  },
+  "/-f50": {
+    "__comp": "__comp---theme-doc-version-roota-7-b-5de",
+    "version": "version---docs-935-739"
+  },
+  "/-f7d": {
+    "__comp": "__comp---theme-doc-roota-94-67a"
+  },
+  "/features-e44": {
+    "__comp": "__comp---theme-doc-item-178-a40",
+    "content": "content---docs-features-1-a-2-3cc"
+  },
+  "/introduction-e7c": {
+    "__comp": "__comp---theme-doc-item-178-a40",
+    "content": "content---docs-introductiona-09-6b4"
+  },
+  "/user-guide-96b": {
+    "__comp": "__comp---theme-doc-item-178-a40",
+    "content": "content---docs-user-guide-1-db-ca9"
+  }
+}

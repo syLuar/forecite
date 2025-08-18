@@ -1,0 +1,19 @@
+{
+  "id": "introduction",
+  "title": "Welcome to Forecite",
+  "description": "Forecite is an AI-powered legal research assistant that helps legal professionals conduct intelligent research and build stronger cases.",
+  "source": "@site/docs/introduction.md",
+  "sourceDirName": ".",
+  "slug": "/introduction",
+  "permalink": "/introduction",
+  "draft": false,
+  "unlisted": false,
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "tutorialSidebar",
+  "next": {
+    "title": "User Guide",
+    "permalink": "/user-guide"
+  }
+}
