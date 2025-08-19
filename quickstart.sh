@@ -230,6 +230,34 @@ setup_frontend() {
     print_success "Frontend setup complete!"
 }
 
+# Function to setup and build docusaurus
+setup_docusaurus() {
+    print_status "Setting up Docusaurus documentation..."
+    
+    cd docusaurus
+    
+    # Check if node_modules exists
+    if [ ! -d "node_modules" ]; then
+        print_status "Installing Docusaurus dependencies..."
+        npm install
+    else
+        print_status "Docusaurus dependencies already installed, checking for updates..."
+        npm install
+    fi
+    
+    # Build Docusaurus
+    print_status "Building Docusaurus documentation..."
+    npm run build
+    
+    # Copy built docs to backend static directory
+    print_status "Copying documentation to backend..."
+    mkdir -p ../backend/static/docs
+    cp -r build/* ../backend/static/docs/
+    
+    cd ..
+    print_success "Docusaurus documentation setup complete!"
+}
+
 # Function to start backend server
 start_backend() {
     print_status "Starting backend server on port 8000..."
@@ -298,6 +326,7 @@ show_status() {
     print_status "📱 Frontend:     http://localhost:3000"
     print_status "🔧 Backend API:  http://localhost:8000"
     print_status "📚 API Docs:     http://localhost:8000/docs"
+    print_status "📖 User Guide:   http://localhost:8000/docs/user-guide"
     echo ""
     print_status "Backend PID: $BACKEND_PID"
     print_status "Frontend PID: $FRONTEND_PID"
@@ -337,9 +366,9 @@ main() {
     echo ""
     
     # Check if we're in the right directory
-    if [ ! -d "backend" ] || [ ! -d "frontend" ]; then
+    if [ ! -d "backend" ] || [ ! -d "frontend" ] || [ ! -d "docusaurus" ]; then
         print_error "This script must be run from the root directory of the Forecite project!"
-        print_error "Expected to find 'backend' and 'frontend' directories."
+        print_error "Expected to find 'backend', 'frontend', and 'docusaurus' directories."
         exit 1
     fi
     
@@ -347,6 +376,7 @@ main() {
     cleanup_ports
     setup_backend
     setup_frontend
+    setup_docusaurus 
     start_backend
     start_frontend
     show_status

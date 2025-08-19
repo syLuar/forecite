@@ -8,7 +8,7 @@ export default {
   "tagline": "AI-Powered Legal Research Assistant",
   "favicon": "img/favicon.ico",
   "url": "https://forecite.site",
-  "baseUrl": "/",
+  "baseUrl": "/docs/",
   "organizationName": "forecite",
   "projectName": "forecite-docs",
   "onBrokenLinks": "throw",

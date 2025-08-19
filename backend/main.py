@@ -72,6 +72,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from fastapi.staticfiles import StaticFiles
+import os
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -127,6 +130,11 @@ app.add_middleware(
     allow_methods=["*"],    # Allow all standard methods (GET, POST, etc.)
     allow_headers=["*"],    # Allow all headers
 )
+
+# Serve documentation at /docs path
+docs_path = os.path.join(os.path.dirname(__file__), "static", "docs")
+if os.path.exists(docs_path):
+    app.mount("/docs", StaticFiles(directory=docs_path, html=True), name="docs")
 
 
 @app.exception_handler(RequestValidationError)

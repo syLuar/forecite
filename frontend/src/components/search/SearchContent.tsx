@@ -233,7 +233,7 @@ const SearchContent: React.FC = () => {
           <div className="flex items-center gap-3 mb-2">
             <h2 className="text-3xl font-bold text-gray-900">Legal Research</h2>
             <a
-              href="https://forecite.site/user-guide"
+              href="https://forecite.site/docs/user-guide"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors border border-gray-300"
