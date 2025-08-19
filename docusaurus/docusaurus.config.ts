@@ -7,7 +7,7 @@ const config: Config = {
   tagline: 'AI-Powered Legal Research Assistant',
   favicon: 'img/favicon.ico',
   url: 'https://forecite.site',
-  baseUrl: '/docs/', 
+  baseUrl: '/user-guide/', 
   organizationName: 'forecite',
   projectName: 'forecite-docs',
 
