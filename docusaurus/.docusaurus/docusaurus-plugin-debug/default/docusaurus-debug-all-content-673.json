@@ -9,8 +9,8 @@
           "badge": false,
           "noIndex": false,
           "className": "docs-version-current",
-          "path": "/",
-          "tagsPath": "/tags",
+          "path": "/docs/",
+          "tagsPath": "/docs/tags",
           "isLast": true,
           "routePriority": -1,
           "sidebarFilePath": "/Users/chanmalichan/Downloads/forecite/docusaurus/sidebars.js",
@@ -24,7 +24,7 @@
               "source": "@site/docs/features.md",
               "sourceDirName": ".",
               "slug": "/features",
-              "permalink": "/features",
+              "permalink": "/docs/features",
               "draft": false,
               "unlisted": false,
               "tags": [],
@@ -33,7 +33,7 @@
               "sidebar": "tutorialSidebar",
               "previous": {
                 "title": "User Guide",
-                "permalink": "/user-guide"
+                "permalink": "/docs/user-guide"
               }
             },
             {
@@ -43,7 +43,7 @@
               "source": "@site/docs/introduction.md",
               "sourceDirName": ".",
               "slug": "/introduction",
-              "permalink": "/introduction",
+              "permalink": "/docs/introduction",
               "draft": false,
               "unlisted": false,
               "tags": [],
@@ -52,7 +52,7 @@
               "sidebar": "tutorialSidebar",
               "next": {
                 "title": "User Guide",
-                "permalink": "/user-guide"
+                "permalink": "/docs/user-guide"
               }
             },
             {
@@ -62,7 +62,7 @@
               "source": "@site/docs/user-guide.md",
               "sourceDirName": ".",
               "slug": "/user-guide",
-              "permalink": "/user-guide",
+              "permalink": "/docs/user-guide",
               "draft": false,
               "unlisted": false,
               "tags": [],
@@ -71,11 +71,11 @@
               "sidebar": "tutorialSidebar",
               "previous": {
                 "title": "Welcome to Forecite",
-                "permalink": "/introduction"
+                "permalink": "/docs/introduction"
               },
               "next": {
                 "title": "Features",
-                "permalink": "/features"
+                "permalink": "/docs/features"
               }
             }
           ],
@@ -104,7 +104,7 @@
     "default": [
       {
         "type": "jsx",
-        "permalink": "/",
+        "permalink": "/docs/",
         "source": "@site/src/pages/index.tsx"
       }
     ]

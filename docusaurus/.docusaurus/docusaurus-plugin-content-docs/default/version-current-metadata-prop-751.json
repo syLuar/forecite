@@ -12,21 +12,21 @@
       {
         "type": "link",
         "label": "Welcome to Forecite",
-        "href": "/introduction",
+        "href": "/docs/introduction",
         "docId": "introduction",
         "unlisted": false
       },
       {
         "type": "link",
         "label": "User Guide",
-        "href": "/user-guide",
+        "href": "/docs/user-guide",
         "docId": "user-guide",
         "unlisted": false
       },
       {
         "type": "link",
         "label": "Features",
-        "href": "/features",
+        "href": "/docs/features",
         "docId": "features",
         "unlisted": false
       }

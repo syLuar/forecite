@@ -3,72 +3,37 @@ import ComponentCreator from '@docusaurus/ComponentCreator';
 
 export default [
   {
-    path: '/__docusaurus/debug',
-    component: ComponentCreator('/__docusaurus/debug', '826'),
+    path: '/docs/',
+    component: ComponentCreator('/docs/', 'a6b'),
     exact: true
   },
   {
-    path: '/__docusaurus/debug/config',
-    component: ComponentCreator('/__docusaurus/debug/config', '404'),
-    exact: true
-  },
-  {
-    path: '/__docusaurus/debug/content',
-    component: ComponentCreator('/__docusaurus/debug/content', '818'),
-    exact: true
-  },
-  {
-    path: '/__docusaurus/debug/globalData',
-    component: ComponentCreator('/__docusaurus/debug/globalData', '5d0'),
-    exact: true
-  },
-  {
-    path: '/__docusaurus/debug/metadata',
-    component: ComponentCreator('/__docusaurus/debug/metadata', '49a'),
-    exact: true
-  },
-  {
-    path: '/__docusaurus/debug/registry',
-    component: ComponentCreator('/__docusaurus/debug/registry', 'a1a'),
-    exact: true
-  },
-  {
-    path: '/__docusaurus/debug/routes',
-    component: ComponentCreator('/__docusaurus/debug/routes', '1e4'),
-    exact: true
-  },
-  {
-    path: '/',
-    component: ComponentCreator('/', '0f1'),
-    exact: true
-  },
-  {
-    path: '/',
-    component: ComponentCreator('/', '5e1'),
+    path: '/docs/',
+    component: ComponentCreator('/docs/', '209'),
     routes: [
       {
-        path: '/',
-        component: ComponentCreator('/', 'f50'),
+        path: '/docs/',
+        component: ComponentCreator('/docs/', '7e5'),
         routes: [
           {
-            path: '/',
-            component: ComponentCreator('/', 'f7d'),
+            path: '/docs/',
+            component: ComponentCreator('/docs/', 'e3c'),
             routes: [
               {
-                path: '/features',
-                component: ComponentCreator('/features', 'e44'),
+                path: '/docs/features',
+                component: ComponentCreator('/docs/features', '073'),
                 exact: true,
                 sidebar: "tutorialSidebar"
               },
               {
-                path: '/introduction',
-                component: ComponentCreator('/introduction', 'e7c'),
+                path: '/docs/introduction',
+                component: ComponentCreator('/docs/introduction', '457'),
                 exact: true,
                 sidebar: "tutorialSidebar"
               },
               {
-                path: '/user-guide',
-                component: ComponentCreator('/user-guide', '96b'),
+                path: '/docs/user-guide',
+                component: ComponentCreator('/docs/user-guide', 'e20'),
                 exact: true,
                 sidebar: "tutorialSidebar"
               }

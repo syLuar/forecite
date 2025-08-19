@@ -5,7 +5,7 @@
   "source": "@site/docs/introduction.md",
   "sourceDirName": ".",
   "slug": "/introduction",
-  "permalink": "/introduction",
+  "permalink": "/docs/introduction",
   "draft": false,
   "unlisted": false,
   "tags": [],
@@ -14,6 +14,6 @@
   "sidebar": "tutorialSidebar",
   "next": {
     "title": "User Guide",
-    "permalink": "/user-guide"
+    "permalink": "/docs/user-guide"
   }
 }

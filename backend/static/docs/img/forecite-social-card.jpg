@@ -1,0 +1,17 @@
+// Create forecite-social-card.jpg using HTML Canvas
+const canvas = document.createElement('canvas');
+canvas.width = 1200;
+canvas.height = 630;
+const ctx = canvas.getContext('2d');
+
+// Background
+ctx.fillStyle = '#2E8555';
+ctx.fillRect(0, 0, 1200, 630);
+
+// Text
+ctx.fillStyle = 'white';
+ctx.font = 'bold 72px Arial';
+ctx.textAlign = 'center';
+ctx.fillText('Forecite', 600, 315);
+ctx.font = '36px Arial';
+ctx.fillText('AI-Powered Legal Research Assistant', 600, 375);
