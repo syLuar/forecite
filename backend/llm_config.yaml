@@ -71,14 +71,14 @@ main:
         model: "gpt-5-mini"  # Strong reasoning for identifying challenges
         temperature: 0.2
         reasoning:
-          effort: minimal
+          effort: low
         # thinking_budget: 200
         model_provider: "openai"
       counterargument_developer_node:
         model: "gpt-5-mini"  # Strong reasoning for developing arguments
         temperature: 0.2
         reasoning:
-          effort: minimal
+          effort: low
         # thinking_budget: 200
         model_provider: "openai"
       rebuttal_generator_node:
@@ -86,7 +86,7 @@ main:
         # thinking_budget: 200
         temperature: 0.2
         reasoning:
-          effort: minimal
+          effort: low
         model_provider: "openai"
   research_agent:
     model: "gemini-2.5-flash"

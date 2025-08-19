@@ -543,7 +543,7 @@ class LegalResearchAgent:
         - Research applicable statutes and regulations
         - Trace important precedent chains
         - Extract key legal holdings
-        - Document findings and insights as human-readable research notes
+        - Document findings and insights as human-readable research notes. DO NOT INCLUDE CODE OR TOOL USE NOTES IN THE RESEARCH NOTES.
         - Add relevant cases to the case file using add_document_to_case_file
         - ADD AT MOST 5 DOCUMENTS AND 3 NOTES. PLAN YOUR RESEARCH STEPS CAREFULLY.
 
@@ -559,12 +559,12 @@ class LegalResearchAgent:
         
         ## Important Guidelines:
         - Focus on finding and organizing authorities, NOT writing arguments
-        - Save every relevant document you find to the case file
-        - Document your research process and insights using research notes
-        - Be systematic and thorough in your research approach
+        - Save relevant documents you find to the case file
+        - Document your research process and insights using research notes, without including code or tool use notes
         - Consider both supportive and adverse authorities
         - Provide strategic insights for argument development
         - ADD AT MOST 5 DOCUMENTS AND 3 NOTES. PLAN YOUR RESEARCH STEPS CAREFULLY.
+        - DO NOT INCLUDE CODE OR TOOL USE NOTES IN THE RESEARCH NOTES.
 
         Begin your research now. Remember not to add too many documents or notes, as you will need to conclude your research with a final summary.
         There is a short time limit for this research, so do not research for too long.
