@@ -3,37 +3,37 @@ import ComponentCreator from '@docusaurus/ComponentCreator';
 
 export default [
   {
-    path: '/docs/',
-    component: ComponentCreator('/docs/', 'a6b'),
+    path: '/user-guide/',
+    component: ComponentCreator('/user-guide/', 'ea9'),
     exact: true
   },
   {
-    path: '/docs/',
-    component: ComponentCreator('/docs/', '209'),
+    path: '/user-guide/',
+    component: ComponentCreator('/user-guide/', '384'),
     routes: [
       {
-        path: '/docs/',
-        component: ComponentCreator('/docs/', '7e5'),
+        path: '/user-guide/',
+        component: ComponentCreator('/user-guide/', '200'),
         routes: [
           {
-            path: '/docs/',
-            component: ComponentCreator('/docs/', 'e3c'),
+            path: '/user-guide/',
+            component: ComponentCreator('/user-guide/', 'a7e'),
             routes: [
               {
-                path: '/docs/features',
-                component: ComponentCreator('/docs/features', '073'),
+                path: '/user-guide/features',
+                component: ComponentCreator('/user-guide/features', '6a1'),
                 exact: true,
                 sidebar: "tutorialSidebar"
               },
               {
-                path: '/docs/introduction',
-                component: ComponentCreator('/docs/introduction', '457'),
+                path: '/user-guide/introduction',
+                component: ComponentCreator('/user-guide/introduction', 'a80'),
                 exact: true,
                 sidebar: "tutorialSidebar"
               },
               {
-                path: '/docs/user-guide',
-                component: ComponentCreator('/docs/user-guide', 'e20'),
+                path: '/user-guide/user-guide',
+                component: ComponentCreator('/user-guide/user-guide', '692'),
                 exact: true,
                 sidebar: "tutorialSidebar"
               }

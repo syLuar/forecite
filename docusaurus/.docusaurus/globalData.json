@@ -1,28 +1,28 @@
 {
   "docusaurus-plugin-content-docs": {
     "default": {
-      "path": "/docs/",
+      "path": "/user-guide/",
       "versions": [
         {
           "name": "current",
           "label": "Next",
           "isLast": true,
-          "path": "/docs/",
+          "path": "/user-guide/",
           "mainDocId": "introduction",
           "docs": [
             {
               "id": "features",
-              "path": "/docs/features",
+              "path": "/user-guide/features",
               "sidebar": "tutorialSidebar"
             },
             {
               "id": "introduction",
-              "path": "/docs/introduction",
+              "path": "/user-guide/introduction",
               "sidebar": "tutorialSidebar"
             },
             {
               "id": "user-guide",
-              "path": "/docs/user-guide",
+              "path": "/user-guide/user-guide",
               "sidebar": "tutorialSidebar"
             }
           ],
@@ -30,7 +30,7 @@
           "sidebars": {
             "tutorialSidebar": {
               "link": {
-                "path": "/docs/introduction",
+                "path": "/user-guide/introduction",
                 "label": "introduction"
               }
             }
