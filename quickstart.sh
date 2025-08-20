@@ -58,28 +58,60 @@ port_in_use() {
 
 # Function to kill processes on specific ports
 cleanup_ports() {
-    print_status "Cleaning up any existing processes..."
     local os=$(detect_os)
+    local ports_in_use=()
     
+    # Check which ports are in use
     if port_in_use 8000; then
-        print_warning "Port 8000 is in use, attempting to free it..."
-        if [ "$os" = "windows" ]; then
-            netstat -ano | grep ":8000 " | grep "LISTENING" | awk '{print $5}' | xargs taskkill /PID /F 2>/dev/null || true
-        else
-            lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-        fi
+        ports_in_use+=("8000")
     fi
     
     if port_in_use 3000; then
-        print_warning "Port 3000 is in use, attempting to free it..."
-        if [ "$os" = "windows" ]; then
-            netstat -ano | grep ":3000 " | grep "LISTENING" | awk '{print $5}' | xargs taskkill /PID /F 2>/dev/null || true
-        else
-            lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-        fi
+        ports_in_use+=("3000")
     fi
     
-    sleep 2
+    # If no ports are in use, return early
+    if [ ${#ports_in_use[@]} -eq 0 ]; then
+        print_status "Ports 3000 and 8000 are available."
+        return 0
+    fi
+    
+    # Prompt user for confirmation
+    print_warning "The following ports are currently in use: ${ports_in_use[*]}"
+    print_warning "This may interfere with starting the Forecite servers."
+    echo -n "Would you like to kill the processes using these ports? [y/N]: "
+    read -r response
+    
+    case "$response" in
+        [yY][eE][sS]|[yY])
+            print_status "Cleaning up processes on ports: ${ports_in_use[*]}..."
+            
+            if port_in_use 8000; then
+                print_status "Freeing port 8000..."
+                if [ "$os" = "windows" ]; then
+                    netstat -ano | grep ":8000 " | grep "LISTENING" | awk '{print $5}' | xargs taskkill /PID /F 2>/dev/null || true
+                else
+                    lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+                fi
+            fi
+            
+            if port_in_use 3000; then
+                print_status "Freeing port 3000..."
+                if [ "$os" = "windows" ]; then
+                    netstat -ano | grep ":3000 " | grep "LISTENING" | awk '{print $5}' | xargs taskkill /PID /F 2>/dev/null || true
+                else
+                    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+                fi
+            fi
+            
+            sleep 2
+            print_success "Port cleanup completed."
+            ;;
+        *)
+            print_warning "Skipping port cleanup. You may need to manually stop processes using ports ${ports_in_use[*]}."
+            print_warning "The script will continue, but servers may fail to start if ports are still in use."
+            ;;
+    esac
 }
 
 # Function to check prerequisites
@@ -126,21 +158,36 @@ check_prerequisites() {
     
     # Check if uv is installed
     if ! command_exists uv; then
-        print_warning "uv is not installed. Installing uv automatically..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+        print_warning "uv is not installed. uv is a fast Python package installer and resolver."
+        echo -n "Would you like to install uv automatically? [y/N]: "
+        read -r response
         
-        # Source the shell profile to make uv available in current session
-        if [ -f "$HOME/.cargo/env" ]; then
-            source "$HOME/.cargo/env"
-        fi
-        
-        # Check if uv is now available
-        if ! command_exists uv; then
-            print_error "Failed to install uv. Please install manually: pip install uv"
-            exit 1
-        fi
-        
-        print_success "uv installed successfully!"
+        case "$response" in
+            [yY][eE][sS]|[yY])
+                print_status "Installing uv automatically..."
+                curl -LsSf https://astral.sh/uv/install.sh | sh
+                
+                # Source the shell profile to make uv available in current session
+                if [ -f "$HOME/.cargo/env" ]; then
+                    source "$HOME/.cargo/env"
+                fi
+                
+                # Check if uv is now available
+                if ! command_exists uv; then
+                    print_error "Failed to install uv. Please install manually: pip install uv"
+                    exit 1
+                fi
+                
+                print_success "uv installed successfully!"
+                ;;
+            *)
+                print_error "uv is required for this script. Please install it manually:"
+                print_error "  Option 1: curl -LsSf https://astral.sh/uv/install.sh | sh"
+                print_error "  Option 2: pip install uv"
+                print_error "  Option 3: Use manual setup instructions in the README"
+                exit 1
+                ;;
+        esac
     fi
     
     print_success "All prerequisites met!"
