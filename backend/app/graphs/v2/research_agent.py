@@ -606,6 +606,7 @@ class LegalResearchAgent:
         - Extract key legal holdings
         - Document findings and insights as human-readable research notes. DO NOT INCLUDE CODE OR TOOL USE NOTES IN THE RESEARCH NOTES.
         - Add relevant cases to the case file using add_document_to_case_file
+        - IN THE NOTES, DO NOT WRITE ANYTHING IN BACKTICKS OR CODE BLOCKS.
         - ADD AT MOST 5 DOCUMENTS AND 3 NOTES. PLAN YOUR RESEARCH STEPS CAREFULLY.
 
         ### Step 3: Final Summary and Conclusion
@@ -625,7 +626,7 @@ class LegalResearchAgent:
         - Consider both supportive and adverse authorities
         - Provide strategic insights for argument development
         - ADD AT MOST 5 DOCUMENTS AND 3 NOTES. PLAN YOUR RESEARCH STEPS CAREFULLY.
-        - DO NOT INCLUDE CODE OR TOOL USE NOTES IN THE RESEARCH NOTES.
+        - DO NOT INCLUDE CODE OR TOOL USE NOTES IN THE RESEARCH NOTES. DO NOT WRITE ANYTHING IN BACKTICKS OR CODE BLOCKS.
 
         Begin your research now. Remember not to add too many documents or notes, as you will need to conclude your research with a final summary.
         There is a short time limit for this research, so do not research for too long.
