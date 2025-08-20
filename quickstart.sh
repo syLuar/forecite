@@ -376,7 +376,7 @@ main() {
     cleanup_ports
     setup_backend
     setup_frontend
-    setup_docusaurus 
+    # setup_docusaurus 
     start_backend
     start_frontend
     show_status
