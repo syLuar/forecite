@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Target } from 'lucide-react';
+import { Search, Target, HelpCircle } from 'lucide-react';
 
 interface BottomNavigationProps {
   activeTab: string;
@@ -10,6 +10,7 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ activeTab, onTabCha
   const tabs = [
     { id: 'search', label: 'Search', icon: Search },
     { id: 'argue', label: 'Strategy', icon: Target },
+    { id: 'guide', label: 'User Guide', icon: HelpCircle },
   ];
 
   return (

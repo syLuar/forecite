@@ -8,6 +8,15 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 function App() {
   const [activeTab, setActiveTab] = useState('search');
 
+  const handleTabChange = (tab: string) => {
+    if (tab === 'guide') {
+      // Open user guide in new tab and stay on current page
+      window.open('/user-guide/', '_blank');
+      return;
+    }
+    setActiveTab(tab);
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'search':
@@ -30,7 +39,7 @@ function App() {
         
         <BottomNavigation 
           activeTab={activeTab} 
-          onTabChange={setActiveTab} 
+          onTabChange={handleTabChange} 
         />
       </div>
     </ErrorBoundary>
