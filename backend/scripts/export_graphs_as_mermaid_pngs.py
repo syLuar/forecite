@@ -14,15 +14,25 @@ WORKFLOWS = [
     # v2
     ("app.graphs.v2.research_graph", "research_graph", "research_graph_v2.png"),
     ("app.graphs.v2.drafting_graph", "drafting_graph", "drafting_graph_v2.png"),
-    ("app.graphs.v2.counterargument_graph", "counterargument_graph", "counterargument_graph_v2.png"),
-    ("app.graphs.v2.research_agent", "research_agent.agent_executor", "research_agent_v2.png"),
+    (
+        "app.graphs.v2.counterargument_graph",
+        "counterargument_graph",
+        "counterargument_graph_v2.png",
+    ),
+    (
+        "app.graphs.v2.research_agent",
+        "research_agent.agent_executor",
+        "research_agent_v2.png",
+    ),
 ]
+
 
 def render_mermaid_to_png(graph, output_path):
     # draw_mermaid_png accepts a graph or a mermaid string
     png_bytes = graph.get_graph().draw_mermaid_png()
     with open(output_path, "wb") as f:
         f.write(png_bytes)
+
 
 def main():
     sys.path.insert(0, str(BASE_DIR))
@@ -33,12 +43,13 @@ def main():
             graph = mod
             for part in parts:
                 graph = getattr(graph, part)
-                
+
             out_path = VIS_DIR / out_file
             render_mermaid_to_png(graph, out_path)
             print(f"Exported {module_name}.{var_name} to {out_path}")
         except Exception as e:
             print(f"Failed to export {module_name}.{var_name}: {e}")
+
 
 if __name__ == "__main__":
     main()

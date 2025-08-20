@@ -3,7 +3,7 @@ Legal Research ReAct Agent
 
 This module implements a ReAct (Reasoning + Acting) agent specifically designed for
 conducting detailed legal research, retrieving relevant documents, and organizing
-findings in case files. The agent focuses on research and document collection, 
+findings in case files. The agent focuses on research and document collection,
 leaving argument drafting to specialized downstream agents.
 
 Uses LangGraph's create_react_agent for reliable and modern agent implementation.
@@ -92,7 +92,7 @@ import uuid
 import re
 from pydantic import BaseModel, Field
 
-# ReAct framework imports  
+# ReAct framework imports
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import StructuredTool
 
@@ -105,7 +105,7 @@ from app.tools.research_tools import (
     find_cases_by_fact_pattern,
     search_statute_references,
     analyze_citation_network,
-    validate_legal_statement
+    validate_legal_statement,
 )
 from app.tools.database_tools import add_document_tool, add_ai_note_tool
 from langgraph.config import get_stream_writer
@@ -116,14 +116,18 @@ logger = logging.getLogger(__name__)
 
 class ResearchPlan(BaseModel):
     """Structure for research planning."""
+
     legal_issues: List[str] = Field(description="List of legal issues to research")
     search_strategies: List[str] = Field(description="Research strategies to employ")
     priority_order: List[int] = Field(description="Priority order for issues")
-    expected_authorities: List[str] = Field(description="Expected types of authorities needed")
+    expected_authorities: List[str] = Field(
+        description="Expected types of authorities needed"
+    )
 
 
 class ResearchFindings(BaseModel):
     """Structure for organizing research findings."""
+
     relevant_cases: List[Dict[str, Any]] = Field(default_factory=list)
     key_holdings: List[str] = Field(default_factory=list)
     statutory_authorities: List[Dict[str, Any]] = Field(default_factory=list)
@@ -134,89 +138,139 @@ class ResearchFindings(BaseModel):
 # Input schemas for StructuredTool implementations
 class IdentifyLegalIssuesInput(BaseModel):
     """Input schema for identifying legal issues."""
-    case_facts: str = Field(description="Factual background of the case to analyze for legal issues")
+
+    case_facts: str = Field(
+        description="Factual background of the case to analyze for legal issues"
+    )
 
 
 class SemanticSearchInput(BaseModel):
     """Input schema for semantic search."""
+
     query: str = Field(description="Search query for legal content")
     top_k: int = Field(default=10, description="Maximum number of results to return")
 
 
 class FactPatternSearchInput(BaseModel):
     """Input schema for fact pattern search."""
-    fact_description: str = Field(description="Description of the factual scenario to find similar cases")
-    key_facts: Optional[List[str]] = Field(default=None, description="Specific key facts to match")
-    legal_context: Optional[str] = Field(default=None, description="Legal context to filter by")
-    similarity_threshold: float = Field(default=0.6, description="Minimum similarity for inclusion")
+
+    fact_description: str = Field(
+        description="Description of the factual scenario to find similar cases"
+    )
+    key_facts: Optional[List[str]] = Field(
+        default=None, description="Specific key facts to match"
+    )
+    legal_context: Optional[str] = Field(
+        default=None, description="Legal context to filter by"
+    )
+    similarity_threshold: float = Field(
+        default=0.6, description="Minimum similarity for inclusion"
+    )
 
 
 class StatuteSearchInput(BaseModel):
     """Input schema for statute reference search."""
-    statute_reference: str = Field(description="Statute or regulation reference to search for")
-    section: Optional[str] = Field(default=None, description="Specific section or subsection")
+
+    statute_reference: str = Field(
+        description="Statute or regulation reference to search for"
+    )
+    section: Optional[str] = Field(
+        default=None, description="Specific section or subsection"
+    )
 
 
 class LegalHoldingsInput(BaseModel):
     """Input schema for extracting legal holdings."""
+
     legal_issue: str = Field(description="Legal issue to extract holdings for")
 
 
 class CitationNetworkInput(BaseModel):
     """Input schema for citation network analysis."""
-    case_citation: str = Field(description="Case citation to analyze citation network for")
-    direction: str = Field(default="both", description="Direction of citation analysis: 'cited_by', 'cites', or 'both'")
+
+    case_citation: str = Field(
+        description="Case citation to analyze citation network for"
+    )
+    direction: str = Field(
+        default="both",
+        description="Direction of citation analysis: 'cited_by', 'cites', or 'both'",
+    )
 
 
 class ValidateLegalStatementInput(BaseModel):
     """Input schema for validating legal statements."""
-    legal_proposition: str = Field(description="Legal proposition to validate against authorities")
-    jurisdiction: Optional[str] = Field(default=None, description="Relevant jurisdiction")
-    confidence_level: str = Field(default="medium", description="Required confidence level")
+
+    legal_proposition: str = Field(
+        description="Legal proposition to validate against authorities"
+    )
+    jurisdiction: Optional[str] = Field(
+        default=None, description="Relevant jurisdiction"
+    )
+    confidence_level: str = Field(
+        default="medium", description="Required confidence level"
+    )
 
 
 class AddDocumentInput(BaseModel):
     """Input schema for adding documents to case file."""
+
     case_file_id: int = Field(description="ID of the case file to add document to")
     chunk_id: str = Field(description="Unique identifier for the chunk")
-    relevance_score_percent: Optional[float] = Field(default=None, description="Relevance score from 0-100")
-    user_notes: Optional[str] = Field(default=None, description="Notes about the document's relevance")
+    relevance_score_percent: Optional[float] = Field(
+        default=None, description="Relevance score from 0-100"
+    )
+    user_notes: Optional[str] = Field(
+        default=None, description="Notes about the document's relevance"
+    )
 
 
 class AddResearchNoteInput(BaseModel):
     """Input schema for adding research notes."""
+
     case_file_id: int = Field(description="ID of the case file to add note to")
     content: str = Field(description="Content of the research note")
-    note_type: str = Field(default="research", description="Type of note: 'research', 'strategy', 'fact', 'analysis', etc.")
-    tags: Optional[List[str]] = Field(default=None, description="Tags to categorize the note")
+    note_type: str = Field(
+        default="research",
+        description="Type of note: 'research', 'strategy', 'fact', 'analysis', etc.",
+    )
+    tags: Optional[List[str]] = Field(
+        default=None, description="Tags to categorize the note"
+    )
 
 
 class LegalResearchAgent:
     """
     ReAct agent specialized for legal research and document collection.
-    
+
     This agent conducts systematic legal research, identifies relevant authorities,
     organizes findings in case files, and documents insights through research notes
     for use by downstream drafting agents.
-    
+
     Uses the modern LangChain create_react_agent framework for reliable performance.
     """
-    
+
     def __init__(self, llm_config: Optional[Dict[str, Any]] = None):
         """
         Initialize the legal research agent.
-        
+
         Args:
             llm_config: Optional LLM configuration override
         """
         # Initialize LLM
-        self.llm = create_llm(settings.llm_config.get("main", {}).get("research_agent", {}))
+        self.llm = create_llm(
+            settings.llm_config.get("main", {}).get("research_agent", {})
+        )
 
         # Setup tools for the agent
         self.tools = self._setup_tools()
-        
+
         # Create the ReAct agent using LangGraph
-        self.agent_executor = create_react_agent(self.llm, self.tools, pre_model_hook=self._pre_model_hook, post_model_hook=self._post_model_hook)
+        self.agent_executor = create_react_agent(
+            self.llm,
+            self.tools,
+            pre_model_hook=self._pre_model_hook,
+            post_model_hook=self._post_model_hook,
+        )
 
     def _pre_model_hook(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -226,30 +280,34 @@ class LegalResearchAgent:
         """
         step_id = "researcher"
         writer = get_stream_writer()
-        writer({
-            "step_id": step_id,
-            "status": "in_progress",
-            "brief_description": "Planning research strategy",
-            "description": "Developing the research strategy and approach based on identified issues."
-        })
+        writer(
+            {
+                "step_id": step_id,
+                "status": "in_progress",
+                "brief_description": "Planning research strategy",
+                "description": "Developing the research strategy and approach based on identified issues.",
+            }
+        )
 
         return messages
-    
+
     def _post_model_hook(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Post-model hook to add a custom stream update for the frontend.
-        
+
         Args:
             messages: List of messages in the conversation
         """
         step_id = "researcher"
         writer = get_stream_writer()
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Executed research strategy",
-            "description": "Executed research based on identified issues."
-        })
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Executed research strategy",
+                "description": "Executed research based on identified issues.",
+            }
+        )
 
         return messages
 
@@ -264,9 +322,8 @@ class LegalResearchAgent:
                     "Use this when legal issues are not explicitly provided to systematically "
                     "extract all potential legal questions from the factual scenario."
                 ),
-                args_schema=IdentifyLegalIssuesInput
+                args_schema=IdentifyLegalIssuesInput,
             ),
-            
             StructuredTool.from_function(
                 func=self._semantic_search_wrapper,
                 name="semantic_search_legal_content",
@@ -275,9 +332,8 @@ class LegalResearchAgent:
                     "Use this to find cases and documents related to legal concepts, "
                     "fact patterns, or legal questions."
                 ),
-                args_schema=SemanticSearchInput
+                args_schema=SemanticSearchInput,
             ),
-            
             StructuredTool.from_function(
                 func=find_cases_by_fact_pattern,
                 name="find_cases_by_fact_pattern",
@@ -285,9 +341,8 @@ class LegalResearchAgent:
                     "Find cases with similar factual scenarios. "
                     "Use this to identify precedents with comparable facts."
                 ),
-                args_schema=FactPatternSearchInput
+                args_schema=FactPatternSearchInput,
             ),
-            
             StructuredTool.from_function(
                 func=search_statute_references,
                 name="search_statute_references",
@@ -295,9 +350,8 @@ class LegalResearchAgent:
                     "Find cases that reference specific statutes or regulations. "
                     "Use this to research statutory interpretation and application."
                 ),
-                args_schema=StatuteSearchInput
+                args_schema=StatuteSearchInput,
             ),
-            
             StructuredTool.from_function(
                 func=self._extract_legal_holdings_wrapper,
                 name="extract_legal_holdings",
@@ -305,9 +359,8 @@ class LegalResearchAgent:
                     "Extract legal holdings and principles from cases. "
                     "Use this to identify key legal principles and rules."
                 ),
-                args_schema=LegalHoldingsInput
+                args_schema=LegalHoldingsInput,
             ),
-            
             StructuredTool.from_function(
                 func=analyze_citation_network,
                 name="analyze_citation_network",
@@ -315,9 +368,8 @@ class LegalResearchAgent:
                     "Analyze how cases cite each other to understand precedent relationships. "
                     "Use this to trace legal development and case influence."
                 ),
-                args_schema=CitationNetworkInput
+                args_schema=CitationNetworkInput,
             ),
-            
             StructuredTool.from_function(
                 func=validate_legal_statement,
                 name="validate_legal_statement",
@@ -325,9 +377,8 @@ class LegalResearchAgent:
                     "Validate a legal proposition against available authorities. "
                     "Use this to verify legal statements and identify supporting authority."
                 ),
-                args_schema=ValidateLegalStatementInput
+                args_schema=ValidateLegalStatementInput,
             ),
-            
             StructuredTool.from_function(
                 func=add_document_tool,
                 name="add_document_to_case_file",
@@ -336,9 +387,8 @@ class LegalResearchAgent:
                     "Use this to save relevant cases and authorities you find during research. "
                     "Important: The user notes should be concise and focused on the relevance of the document."
                 ),
-                args_schema=AddDocumentInput
+                args_schema=AddDocumentInput,
             ),
-            
             StructuredTool.from_function(
                 func=self._add_research_note_wrapper,
                 name="add_research_note",
@@ -350,24 +400,24 @@ class LegalResearchAgent:
                     "easily reference and utilize in their case work. "
                     "DO NOT include any code here."
                 ),
-                args_schema=AddResearchNoteInput
-            )
+                args_schema=AddResearchNoteInput,
+            ),
         ]
-    
+
     def _semantic_search_wrapper(self, query: str, top_k: int = 10) -> str:
         """Wrapper for semantic search with proper input handling."""
         return semantic_search_legal_content(query, top_k=top_k)
-    
+
     def _extract_legal_holdings_wrapper(self, legal_issue: str) -> str:
         """Wrapper for extracting legal holdings with proper input handling."""
         return extract_legal_information("holdings", legal_issue=legal_issue)
-    
+
     def _add_research_note_wrapper(
         self,
         case_file_id: int,
         content: str,
         note_type: str = "research",
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
     ) -> str:
         """Wrapper for adding research notes with proper input handling."""
         return add_ai_note_tool(
@@ -375,28 +425,29 @@ class LegalResearchAgent:
             content=content,
             author_name="Forecite AI",
             note_type=note_type,
-            tags=tags
+            tags=tags,
         )
-    
-    
+
     def _identify_legal_issues(self, case_facts: str) -> str:
         """
         Analyze case facts to identify potential legal issues and claims.
-        
+
         Args:
             case_facts: Factual background of the case
-            
+
         Returns:
             JSON string with identified legal issues
         """
         step_id = f"issue_identifier_{uuid.uuid4().hex[:8]}"
         writer = get_stream_writer()
-        writer({
-            "step_id": step_id,
-            "status": "in_progress",
-            "brief_description": "Identifying legal issues",
-            "description": "Analyzing case facts to extract potential legal issues and claims."
-        })
+        writer(
+            {
+                "step_id": step_id,
+                "status": "in_progress",
+                "brief_description": "Identifying legal issues",
+                "description": "Analyzing case facts to extract potential legal issues and claims.",
+            }
+        )
         try:
             # Create a prompt for legal issue identification
             prompt = f"""
@@ -420,23 +471,27 @@ class LegalResearchAgent:
                 "analysis": "Brief explanation of the legal landscape"
             }}
             """
-            
+
             # Use the LLM to identify legal issues
             response = self.llm.invoke(prompt)
-            
-            # Try to extract JSON from the response
-            content = response.content if hasattr(response, 'content') else str(response)
-            
-            # Find JSON in the response (it might be wrapped in markdown or other text)
-            
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
 
-            writer({
-                "step_id": step_id,
-                "status": "complete",
-                "brief_description": "Legal issues identified",
-                "description": "Successfully identified legal issues from case facts."
-            })
+            # Try to extract JSON from the response
+            content = (
+                response.content if hasattr(response, "content") else str(response)
+            )
+
+            # Find JSON in the response (it might be wrapped in markdown or other text)
+
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
+
+            writer(
+                {
+                    "step_id": step_id,
+                    "status": "complete",
+                    "brief_description": "Legal issues identified",
+                    "description": "Successfully identified legal issues from case facts.",
+                }
+            )
 
             if json_match:
                 json_str = json_match.group()
@@ -445,31 +500,37 @@ class LegalResearchAgent:
                 return json_str
             else:
                 # Fallback: return a simple structure with the analysis
-                return json.dumps({
-                    "primary_issues": ["Legal issues identified from case facts"],
+                return json.dumps(
+                    {
+                        "primary_issues": ["Legal issues identified from case facts"],
+                        "secondary_issues": [],
+                        "procedural_issues": [],
+                        "remedy_issues": [],
+                        "analysis": content,
+                    }
+                )
+
+        except Exception as e:
+            writer(
+                {
+                    "step_id": step_id,
+                    "status": "complete",
+                    "brief_description": "Error identifying legal issues",
+                    "description": f"Failed to identify legal issues: {str(e)}",
+                }
+            )
+            logger.error(f"Error identifying legal issues: {e}")
+            return json.dumps(
+                {
+                    "error": f"Failed to identify legal issues: {str(e)}",
+                    "primary_issues": ["Manual issue identification required"],
                     "secondary_issues": [],
                     "procedural_issues": [],
                     "remedy_issues": [],
-                    "analysis": content
-                })
-                
-        except Exception as e:
-            writer({
-                "step_id": step_id,
-                "status": "complete",
-                "brief_description": "Error identifying legal issues",
-                "description": f"Failed to identify legal issues: {str(e)}"
-            })
-            logger.error(f"Error identifying legal issues: {e}")
-            return json.dumps({
-                "error": f"Failed to identify legal issues: {str(e)}",
-                "primary_issues": ["Manual issue identification required"],
-                "secondary_issues": [],
-                "procedural_issues": [],
-                "remedy_issues": [],
-                "analysis": "An error occurred during automatic legal issue identification."
-            })
-    
+                    "analysis": "An error occurred during automatic legal issue identification.",
+                }
+            )
+
     def get_initial_state(
         self,
         case_file_id: int,
@@ -480,24 +541,24 @@ class LegalResearchAgent:
     ) -> str:
         """
         Get initial state for the research agent.
-        
+
         Args:
             case_file_id: ID of the case file to organize research in
             case_facts: Factual background of the case
             party_represented: Which party the research supports
-            legal_issues: Optional list of legal issues to research. If not provided, 
+            legal_issues: Optional list of legal issues to research. If not provided,
                          the AI will identify legal issues from the case facts.
             jurisdiction: Relevant jurisdiction
-            
+
         Returns:
             Research notes summarizing findings and strategic insights
         """
-        
+
         # Handle legal issues - either provided or to be identified by AI
         if legal_issues:
             legal_issues_section = f"""
         ## Legal Issues to Research:
-        {', '.join(legal_issues)}"""
+        {", ".join(legal_issues)}"""
             step1_instructions = """### Step 1: Research Planning
         - Analyze the provided legal issues and identify key legal concepts for each
         - Plan search strategies (semantic search, fact patterns, statutory references)
@@ -514,7 +575,7 @@ class LegalResearchAgent:
         - Plan search strategies (semantic search, fact patterns, statutory references)
         - Prioritize issues based on case strength and client needs
         """
-        
+
         # Create detailed research prompt
         research_prompt = f"""
         You are a expert legal researcher conducting detailed research for a case. Your job is to:
@@ -571,26 +632,26 @@ class LegalResearchAgent:
         """
 
         return {"messages": [{"role": "user", "content": research_prompt}]}
-    
+
     def research_case(
         self,
         case_file_id: int,
         case_facts: str,
         party_represented: str,
         legal_issues: Optional[List[str]] = None,
-        jurisdiction: str = "Singapore"
+        jurisdiction: str = "Singapore",
     ) -> str:
         """
         Conduct comprehensive legal research for a case.
-        
+
         Args:
             case_file_id: ID of the case file to organize research in
             case_facts: Factual background of the case
             party_represented: Which party the research supports
-            legal_issues: Optional list of legal issues to research. If not provided, 
+            legal_issues: Optional list of legal issues to research. If not provided,
                          the AI will identify legal issues from the case facts.
             jurisdiction: Relevant jurisdiction
-            
+
         Returns:
             Research notes summarizing findings and strategic insights
         """
@@ -600,35 +661,36 @@ class LegalResearchAgent:
                 case_facts=case_facts,
                 party_represented=party_represented,
                 legal_issues=legal_issues,
-                jurisdiction=jurisdiction
+                jurisdiction=jurisdiction,
             )
-            
+
             result = self.agent_executor.invoke(initial_state)
             final_message = result["messages"][-1]
-            return final_message.content if hasattr(final_message, 'content') else str(final_message)
-            
+            return (
+                final_message.content
+                if hasattr(final_message, "content")
+                else str(final_message)
+            )
+
         except Exception as e:
             logger.error(f"Error during legal research: {e}")
             return f"Research error: {str(e)}"
-    
+
     def targeted_research(
-        self,
-        case_file_id: int,
-        research_query: str,
-        research_type: str = "general"
+        self, case_file_id: int, research_query: str, research_type: str = "general"
     ) -> str:
         """
         Conduct targeted research on a specific legal question.
-        
+
         Args:
             case_file_id: ID of the case file
             research_query: Specific legal question or topic
             research_type: "precedent", "statutory", "factual", or "general"
-            
+
         Returns:
             Research findings and analysis
         """
-        
+
         research_prompt = f"""
         Conduct targeted legal research on the following question:
         
@@ -653,39 +715,43 @@ class LegalResearchAgent:
         
         Save all relevant findings to the case file, document insights with research notes, and provide detailed analysis.
         """
-        
+
         try:
-            result = self.agent_executor.invoke({"messages": [{"role": "user", "content": research_prompt}]})
+            result = self.agent_executor.invoke(
+                {"messages": [{"role": "user", "content": research_prompt}]}
+            )
             final_message = result["messages"][-1]
-            return final_message.content if hasattr(final_message, 'content') else str(final_message)
-            
+            return (
+                final_message.content
+                if hasattr(final_message, "content")
+                else str(final_message)
+            )
+
         except Exception as e:
             logger.error(f"Error during targeted research: {e}")
             return f"Research error: {str(e)}"
-    
+
     def validate_legal_arguments(
-        self,
-        case_file_id: int,
-        proposed_arguments: List[str]
+        self, case_file_id: int, proposed_arguments: List[str]
     ) -> str:
         """
         Validate proposed legal arguments against available authorities.
-        
+
         Args:
             case_file_id: ID of the case file
             proposed_arguments: List of legal arguments to validate
-            
+
         Returns:
             Validation results and recommendations
         """
-        
+
         validation_prompt = f"""
         Validate the following proposed legal arguments using research tools:
         
         ## Case File ID: {case_file_id}
         
         ## Proposed Arguments:
-        {chr(10).join(f"{i+1}. {arg}" for i, arg in enumerate(proposed_arguments))}
+        {chr(10).join(f"{i + 1}. {arg}" for i, arg in enumerate(proposed_arguments))}
         
         ## Instructions:
         For each argument:
@@ -698,20 +764,26 @@ class LegalResearchAgent:
         
         Provide a comprehensive validation report with strategic recommendations.
         """
-        
+
         try:
-            result = self.agent_executor.invoke({"messages": [{"role": "user", "content": validation_prompt}]})
+            result = self.agent_executor.invoke(
+                {"messages": [{"role": "user", "content": validation_prompt}]}
+            )
             final_message = result["messages"][-1]
-            return final_message.content if hasattr(final_message, 'content') else str(final_message)
-            
+            return (
+                final_message.content
+                if hasattr(final_message, "content")
+                else str(final_message)
+            )
+
         except Exception as e:
             logger.error(f"Error during argument validation: {e}")
             return f"Validation error: {str(e)}"
-        
+
     def get_agent_executor(self):
         """
         Get the agent executor for this ReAct agent.
-        
+
         Returns:
             Instance of the ReAct agent executor
         """
@@ -724,19 +796,19 @@ def conduct_case_research(
     case_facts: str,
     party_represented: str,
     legal_issues: Optional[List[str]] = None,
-    jurisdiction: str = "Singapore"
+    jurisdiction: str = "Singapore",
 ) -> str:
     """
     Convenience function to conduct case research using the ReAct agent.
-    
+
     Args:
         case_file_id: ID of the case file
         case_facts: Factual background
         party_represented: Party being represented
-        legal_issues: Optional legal issues to research. If not provided, 
+        legal_issues: Optional legal issues to research. If not provided,
                      the AI will identify them from case facts.
         jurisdiction: Relevant jurisdiction
-        
+
     Returns:
         Research notes and strategic insights
     """
@@ -746,40 +818,38 @@ def conduct_case_research(
         case_facts=case_facts,
         party_represented=party_represented,
         legal_issues=legal_issues,
-        jurisdiction=jurisdiction
+        jurisdiction=jurisdiction,
     )
 
 
 def validate_arguments_with_research(
-    case_file_id: int,
-    proposed_arguments: List[str]
+    case_file_id: int, proposed_arguments: List[str]
 ) -> str:
     """
     Convenience function to validate arguments using research.
-    
+
     Args:
         case_file_id: ID of the case file
         proposed_arguments: Arguments to validate
-        
+
     Returns:
         Validation results
     """
     agent = LegalResearchAgent()
     return agent.validate_legal_arguments(
-        case_file_id=case_file_id,
-        proposed_arguments=proposed_arguments
+        case_file_id=case_file_id, proposed_arguments=proposed_arguments
     )
 
 
 def create_research_agent(
-    llm_config: Optional[Dict[str, Any]] = None
+    llm_config: Optional[Dict[str, Any]] = None,
 ) -> LegalResearchAgent:
     """
     Factory function to create a new instance of the legal research agent.
-    
+
     Args:
         llm_config: Optional LLM configuration override
-        
+
     Returns:
         Instance of LegalResearchAgent
     """

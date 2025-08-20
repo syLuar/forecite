@@ -47,10 +47,20 @@ from dotenv import load_dotenv
 
 # Import shared helpers
 from ingest_graph_helpers import (
-    LLMCache, PerformanceTracker, Neo4jConnection, BaseDocumentProcessor,
-    LegalEntities, DocumentMetadata, Judge, Lawyer, LegalSummary,
-    extract_citation_from_name, extract_year_from_citation, 
-    infer_jurisdiction, infer_court_level, determine_document_type
+    LLMCache,
+    PerformanceTracker,
+    Neo4jConnection,
+    BaseDocumentProcessor,
+    LegalEntities,
+    DocumentMetadata,
+    Judge,
+    Lawyer,
+    LegalSummary,
+    extract_citation_from_name,
+    extract_year_from_citation,
+    infer_jurisdiction,
+    infer_court_level,
+    determine_document_type,
 )
 
 # Load environment variables from .env file
@@ -76,14 +86,26 @@ class DocumentProcessor(BaseDocumentProcessor):
     def __init__(self, use_embedding_cache: bool = True):
         super().__init__(use_cache=use_embedding_cache, perf_tracker=perf_tracker)
 
-        self.entity_extraction_llm = create_llm(settings.llm_config.get("ingestion", {}).get("entity_extraction", {}))
-        self.summary_generation_llm = create_llm(settings.llm_config.get("ingestion", {}).get("summary_generation", {}))
-        self.metadata_extraction_llm = create_llm(settings.llm_config.get("ingestion", {}).get("metadata_extraction", {}))
+        self.entity_extraction_llm = create_llm(
+            settings.llm_config.get("ingestion", {}).get("entity_extraction", {})
+        )
+        self.summary_generation_llm = create_llm(
+            settings.llm_config.get("ingestion", {}).get("summary_generation", {})
+        )
+        self.metadata_extraction_llm = create_llm(
+            settings.llm_config.get("ingestion", {}).get("metadata_extraction", {})
+        )
 
         # Set up LLMs with structured output capabilities
-        self.entity_extraction_llm_structured = self.entity_extraction_llm.with_structured_output(LegalEntities)
-        self.metadata_extraction_llm_structured = self.metadata_extraction_llm.with_structured_output(DocumentMetadata)
-        self.summary_generation_llm_structured = self.summary_generation_llm.with_structured_output(LegalSummary)
+        self.entity_extraction_llm_structured = (
+            self.entity_extraction_llm.with_structured_output(LegalEntities)
+        )
+        self.metadata_extraction_llm_structured = (
+            self.metadata_extraction_llm.with_structured_output(DocumentMetadata)
+        )
+        self.summary_generation_llm_structured = (
+            self.summary_generation_llm.with_structured_output(LegalSummary)
+        )
 
         # Create entity extraction chain with structured output
         entity_prompt = PromptTemplate(
@@ -102,7 +124,9 @@ Focus on:
 Text: {text}""",
             input_variables=["text"],
         )
-        self.entity_extraction_chain = entity_prompt | self.entity_extraction_llm_structured
+        self.entity_extraction_chain = (
+            entity_prompt | self.entity_extraction_llm_structured
+        )
 
         # Create metadata extraction chain with structured output
         metadata_prompt = PromptTemplate(
@@ -116,7 +140,9 @@ Document text:
 Filename: {filename}""",
             input_variables=["text", "filename"],
         )
-        self.metadata_extraction_chain = metadata_prompt | self.metadata_extraction_llm_structured
+        self.metadata_extraction_chain = (
+            metadata_prompt | self.metadata_extraction_llm_structured
+        )
 
         # Create summary generation chain with integrated relevance assessment
         summary_prompt = PromptTemplate(
@@ -132,11 +158,15 @@ Text to analyze:
 {text}""",
             input_variables=["text"],
         )
-        self.summary_generation_chain = summary_prompt | self.summary_generation_llm_structured
+        self.summary_generation_chain = (
+            summary_prompt | self.summary_generation_llm_structured
+        )
 
-    async def generate_summary_with_relevance(self, text: str) -> tuple[Optional[str], bool]:
+    async def generate_summary_with_relevance(
+        self, text: str
+    ) -> tuple[Optional[str], bool]:
         """Generate a summary of the text with integrated relevance assessment using LLM with structured output and caching support.
-        
+
         Returns:
             tuple: (summary, is_relevant) where summary is None if not relevant
         """
@@ -148,7 +178,7 @@ Text to analyze:
                     logger.debug("📦 Summary found in cache")
                     # If cached summary exists, assume it was relevant
                     return cached_summary, True
-            
+
             start_time = time.time()
 
             # Use the structured output chain
@@ -162,8 +192,10 @@ Text to analyze:
             # Extract the summary and relevance from the structured result
             summary = summary_result.summary
             is_relevant = summary is not None
-            
-            logger.debug(f"Chunk relevance: {is_relevant}, reasoning: {summary_result.reasoning}")
+
+            logger.debug(
+                f"Chunk relevance: {is_relevant}, reasoning: {summary_result.reasoning}"
+            )
 
             # Store in cache only if relevant
             if is_relevant and self.use_cache and self.cache:
@@ -190,13 +222,11 @@ Text to analyze:
                 if cached_entities:
                     logger.debug("📦 Entities found in cache")
                     return cached_entities
-            
+
             start_time = time.time()
 
             # Use the structured output chain
-            entities = await self.entity_extraction_chain.ainvoke(
-                {"text": text}
-            )
+            entities = await self.entity_extraction_chain.ainvoke({"text": text})
 
             entity_time = time.time() - start_time
             perf_tracker.record_metric("entity_extraction_time", entity_time)
@@ -248,37 +278,43 @@ Text to analyze:
 
         return list(references)
 
-    async def extract_citation_formats(self, text: str, filename: str, parties: List[str] = None, scraped_metadata: Dict = None) -> List[str]:
+    async def extract_citation_formats(
+        self,
+        text: str,
+        filename: str,
+        parties: List[str] = None,
+        scraped_metadata: Dict = None,
+    ) -> List[str]:
         """Extract the two main citation formats for this case, preferring scraped metadata."""
         try:
             citation_formats_list = []
-            
+
             # 1. Use scraped metadata if available
             if scraped_metadata:
                 # Primary format from scraped parties
-                scraped_parties = scraped_metadata.get('parties', [])
+                scraped_parties = scraped_metadata.get("parties", [])
                 if scraped_parties and len(scraped_parties) >= 2:
                     primary_citation = f"{scraped_parties[0]} vs {scraped_parties[1]}"
                     citation_formats_list.append(primary_citation)
-                
+
                 # Secondary format from scraped citation
-                scraped_citation = scraped_metadata.get('citation')
+                scraped_citation = scraped_metadata.get("citation")
                 if scraped_citation:
                     citation_formats_list.append(scraped_citation)
-                
+
                 return citation_formats_list
-            
+
             # 2. Fallback to LLM-extracted parties
             if parties and len(parties) >= 2:
                 primary_citation = f"{parties[0]} vs {parties[1]}"
                 citation_formats_list.append(primary_citation)
-            
+
             # 3. Secondary format: [Year] SGCA [Num] - from filename
             filename_citation = re.search(r"\[(\d{4})\]\s*([A-Z]+)\s*(\d+)", filename)
             if filename_citation:
                 secondary_citation = f"[{filename_citation.group(1)}] {filename_citation.group(2)} {filename_citation.group(3)}"
                 citation_formats_list.append(secondary_citation)
-            
+
             return citation_formats_list
         except Exception as e:
             logger.warning(f"Error extracting citation formats: {e}")
@@ -290,9 +326,9 @@ Text to analyze:
         if not metadata_file.exists():
             logger.warning(f"No metadata file found at {metadata_file}")
             return {}
-        
+
         try:
-            with open(metadata_file, 'r', encoding='utf-8') as f:
+            with open(metadata_file, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
             logger.info(f"Loaded metadata for {len(metadata)} cases")
             return metadata
@@ -327,42 +363,50 @@ class GraphBuilder:
     def load_scraped_metadata(self, docs_dir: Path):
         """Load scraped metadata for cases."""
         self.scraped_metadata = self.processor.load_scraped_metadata(docs_dir / "cases")
-        
+
     def get_case_metadata_by_filename(self, filename: str) -> Optional[Dict]:
         """Get scraped metadata for a case by matching filename patterns."""
         # Extract case ID from filename (e.g., "2025_SGHC_163_...")
-        case_id_match = re.search(r'(\d{4}_[A-Z]+_\d+)', filename)
+        case_id_match = re.search(r"(\d{4}_[A-Z]+_\d+)", filename)
         if case_id_match:
             case_id = case_id_match.group(1)
             return self.scraped_metadata.get(case_id)
         return None
 
-    def filter_files_by_required_tags(self, pdf_files: List[Path], required_tags: str) -> List[Path]:
+    def filter_files_by_required_tags(
+        self, pdf_files: List[Path], required_tags: str
+    ) -> List[Path]:
         """Filter PDF files to only include those with metadata tags containing the required string."""
         if not required_tags:
             return pdf_files
-        
+
         required_tags_lower = required_tags.lower()
         filtered_files = []
         no_metadata_count = 0
-        
+
         for pdf_path in pdf_files:
             case_metadata = self.get_case_metadata_by_filename(pdf_path.name)
-            if case_metadata and 'tags' in case_metadata:
+            if case_metadata and "tags" in case_metadata:
                 # Check if any tag contains the required string (case-insensitive)
-                tags = case_metadata.get('tags', [])
+                tags = case_metadata.get("tags", [])
                 if any(required_tags_lower in tag.lower() for tag in tags):
                     filtered_files.append(pdf_path)
-                    logger.debug(f"✅ Including {pdf_path.name} - matches required tag '{required_tags}'")
+                    logger.debug(
+                        f"✅ Including {pdf_path.name} - matches required tag '{required_tags}'"
+                    )
                 else:
                     logger.debug(f"❌ Excluding {pdf_path.name} - no matching tags")
             else:
                 no_metadata_count += 1
-                logger.debug(f"❌ Excluding {pdf_path.name} - no metadata or tags found")
-        
+                logger.debug(
+                    f"❌ Excluding {pdf_path.name} - no metadata or tags found"
+                )
+
         if no_metadata_count > 0:
-            logger.info(f"📋 Note: {no_metadata_count} files excluded due to missing metadata")
-        
+            logger.info(
+                f"📋 Note: {no_metadata_count} files excluded due to missing metadata"
+            )
+
         return filtered_files
 
     async def setup_database_schema(self):
@@ -466,7 +510,11 @@ class GraphBuilder:
             for record in result:
                 index_name = record["name"]
                 index_type = record["type"]
-                if index_name in [settings.vector_index_name, "legal_text_search", "chunk_text_search"]:
+                if index_name in [
+                    settings.vector_index_name,
+                    "legal_text_search",
+                    "chunk_text_search",
+                ]:
                     try:
                         await self.neo4j.execute_query(f"DROP INDEX `{index_name}`")
                         logger.info(f"Dropped index: {index_name}")
@@ -484,7 +532,9 @@ class GraphBuilder:
         if scraped_case_metadata:
             logger.info(f"📋 Found scraped metadata for {pdf_path.name}")
         else:
-            logger.info(f"📋 No scraped metadata found for {pdf_path.name}, will extract from content")
+            logger.info(
+                f"📋 No scraped metadata found for {pdf_path.name}, will extract from content"
+            )
 
         # Extract text
         text = self.processor.extract_text_from_pdf(pdf_path)
@@ -493,7 +543,9 @@ class GraphBuilder:
             return False
 
         # Extract document metadata (combining scraped and extracted)
-        doc_metadata = await self._extract_document_metadata(pdf_path, text, scraped_case_metadata)
+        doc_metadata = await self._extract_document_metadata(
+            pdf_path, text, scraped_case_metadata
+        )
 
         # Create document node with enhanced metadata
         doc_params = {
@@ -541,11 +593,17 @@ class GraphBuilder:
         await self.neo4j.execute_write_query(create_doc_query, doc_params)
 
         # Create judge and lawyer entities
-        await self._create_judge_entities(str(pdf_path.name), doc_metadata.get("judges", []))
-        await self._create_lawyer_entities(str(pdf_path.name), doc_metadata.get("lawyers", []))
+        await self._create_judge_entities(
+            str(pdf_path.name), doc_metadata.get("judges", [])
+        )
+        await self._create_lawyer_entities(
+            str(pdf_path.name), doc_metadata.get("lawyers", [])
+        )
 
         # Create legal tag entities and relationships
-        await self._create_legal_tag_entities(str(pdf_path.name), doc_metadata.get("legal_tags", []))
+        await self._create_legal_tag_entities(
+            str(pdf_path.name), doc_metadata.get("legal_tags", [])
+        )
 
         # Chunk the document
         chunks = self.processor.chunk_document(text, str(pdf_path.name))
@@ -555,7 +613,7 @@ class GraphBuilder:
         # Track references and paragraph mappings for later relationship creation
         chunk_references_map = {}  # chunk_id -> list of referenced paragraph numbers
         paragraph_to_chunk_map = {}  # paragraph_number -> chunk_id
-        
+
         # Track relevance statistics
         relevant_chunks_count = 0
 
@@ -577,16 +635,20 @@ class GraphBuilder:
             )
 
         await asyncio.gather(*tasks)
-        
+
         # Count actual chunks created in database
         count_query = """
         MATCH (c:Chunk {source: $source})
         RETURN count(c) as chunk_count
         """
-        result = await self.neo4j.execute_query(count_query, {"source": str(pdf_path.name)})
+        result = await self.neo4j.execute_query(
+            count_query, {"source": str(pdf_path.name)}
+        )
         actual_chunks_count = result[0]["chunk_count"] if result else 0
-        
-        logger.info(f"📊 Chunk processing summary for {pdf_path.name}: {actual_chunks_count}/{total_chunks} chunks were relevant and stored")
+
+        logger.info(
+            f"📊 Chunk processing summary for {pdf_path.name}: {actual_chunks_count}/{total_chunks} chunks were relevant and stored"
+        )
 
         # Create chunk-to-chunk reference relationships after all chunks are processed
         await self._create_all_chunk_references(
@@ -611,32 +673,40 @@ class GraphBuilder:
         # Check relevance and generate summaries for all chunks
         summary_tasks = []
         for chunk in chunks:
-            summary_tasks.append(self.processor.generate_summary_with_relevance(chunk.page_content))
-        
+            summary_tasks.append(
+                self.processor.generate_summary_with_relevance(chunk.page_content)
+            )
+
         summary_results = await asyncio.gather(*summary_tasks)
-        
+
         # Filter to only relevant chunks
         relevant_chunks = []
         relevant_texts = []
         relevant_summaries = []
-        
-        for i, (chunk, (summary, is_relevant)) in enumerate(zip(chunks, summary_results)):
+
+        for i, (chunk, (summary, is_relevant)) in enumerate(
+            zip(chunks, summary_results)
+        ):
             if is_relevant:
                 relevant_chunks.append((i, chunk))
                 relevant_texts.append(chunk.page_content)
                 relevant_summaries.append(summary)
             else:
-                logger.debug(f"Skipping non-relevant chunk {chunk.metadata['chunk_index']} from {source}")
-        
+                logger.debug(
+                    f"Skipping non-relevant chunk {chunk.metadata['chunk_index']} from {source}"
+                )
+
         if not relevant_chunks:
             logger.info(f"⚠️  No relevant chunks found in batch for {source}")
             return
-            
-        logger.info(f"✅ Found {len(relevant_chunks)}/{len(chunks)} relevant chunks in batch for {source}")
-        
+
+        logger.info(
+            f"✅ Found {len(relevant_chunks)}/{len(chunks)} relevant chunks in batch for {source}"
+        )
+
         # Generate embeddings only for relevant chunks
         relevant_embeddings = await self.processor.generate_embeddings(relevant_texts)
-        
+
         # Create embedding mapping
         embedding_map = {}
         for j, (original_idx, _) in enumerate(relevant_chunks):
@@ -647,7 +717,11 @@ class GraphBuilder:
         tasks = []
         for j, (original_idx, chunk) in enumerate(relevant_chunks):
             embedding = embedding_map.get(original_idx, None)
-            summary = relevant_summaries[j] if j < len(relevant_summaries) else "Summary generation failed"
+            summary = (
+                relevant_summaries[j]
+                if j < len(relevant_summaries)
+                else "Summary generation failed"
+            )
             tasks.append(
                 self._create_chunk_node(
                     chunk,
@@ -672,7 +746,7 @@ class GraphBuilder:
     ):
         """Create a chunk node and its relationships for relevant chunks only."""
         # Since we've already filtered for relevance, all chunks reaching here are relevant
-        
+
         # Extract entities for the relevant chunk
         entities = await self.processor.extract_entities(chunk.page_content)
 
@@ -812,7 +886,9 @@ class GraphBuilder:
             except Exception as e:
                 logger.warning(f"Reference relationship creation failed: {e}")
 
-    async def _extract_document_metadata(self, pdf_path: Path, text: str, scraped_metadata: Dict = None) -> Dict[str, Any]:
+    async def _extract_document_metadata(
+        self, pdf_path: Path, text: str, scraped_metadata: Dict = None
+    ) -> Dict[str, Any]:
         """Extract enhanced metadata from document using structured output and scraped metadata."""
         try:
             filename = pdf_path.name
@@ -821,40 +897,46 @@ class GraphBuilder:
             # If we have scraped metadata, prioritize it
             if scraped_metadata:
                 logger.info(f"Using scraped metadata for {filename}")
-                
+
                 # Map scraped metadata to our schema
-                metadata.update({
-                    "title": scraped_metadata.get("title", ""),
-                    "parties": scraped_metadata.get("parties", []),
-                    "citation": scraped_metadata.get("citation", ""),
-                    "case_number": scraped_metadata.get("case_number", ""),
-                    "court": scraped_metadata.get("court", ""),
-                    "decision_date": scraped_metadata.get("decision_date", ""),
-                    "legal_tags": scraped_metadata.get("tags", []),
-                    "year": scraped_metadata.get("year"),
-                    "jurisdiction": infer_jurisdiction(scraped_metadata.get("court", "")),
-                    "court_level": infer_court_level(scraped_metadata.get("court", "")),
-                })
-                
+                metadata.update(
+                    {
+                        "title": scraped_metadata.get("title", ""),
+                        "parties": scraped_metadata.get("parties", []),
+                        "citation": scraped_metadata.get("citation", ""),
+                        "case_number": scraped_metadata.get("case_number", ""),
+                        "court": scraped_metadata.get("court", ""),
+                        "decision_date": scraped_metadata.get("decision_date", ""),
+                        "legal_tags": scraped_metadata.get("tags", []),
+                        "year": scraped_metadata.get("year"),
+                        "jurisdiction": infer_jurisdiction(
+                            scraped_metadata.get("court", "")
+                        ),
+                        "court_level": infer_court_level(
+                            scraped_metadata.get("court", "")
+                        ),
+                    }
+                )
+
                 # Convert year to int if it's a string
                 if isinstance(metadata.get("year"), str):
                     try:
                         metadata["year"] = int(metadata["year"])
                     except (ValueError, TypeError):
                         metadata["year"] = None
-                
+
                 # Set date from decision_date if available
                 if scraped_metadata.get("decision_date"):
                     metadata["date"] = scraped_metadata["decision_date"]
                 elif metadata.get("year"):
                     metadata["date"] = f"{metadata['year']}-01-01"
-                
+
                 # Use scraped metadata for citation formats
                 citation_formats = await self.processor.extract_citation_formats(
                     text, filename, scraped_metadata=scraped_metadata
                 )
                 metadata["citation_formats"] = citation_formats
-                
+
                 # Extract judges/lawyers from LLM if not in scraped metadata
                 # (scraped metadata doesn't include judge/lawyer info)
                 try:
@@ -864,11 +946,15 @@ class GraphBuilder:
                         text_input = text
 
                     start_time = time.time()
-                    llm_metadata = await self.processor.metadata_extraction_chain.ainvoke({
-                        "text": text_input,
-                        "filename": filename,
-                    })
-                    
+                    llm_metadata = (
+                        await self.processor.metadata_extraction_chain.ainvoke(
+                            {
+                                "text": text_input,
+                                "filename": filename,
+                            }
+                        )
+                    )
+
                     metadata_time = time.time() - start_time
                     perf_tracker.record_metric("llm_time", metadata_time)
                     perf_tracker.record_metric("llm_calls", 1)
@@ -877,16 +963,16 @@ class GraphBuilder:
                     llm_metadata_dict = llm_metadata.model_dump()
                     metadata["judges"] = llm_metadata_dict.get("judges", [])
                     metadata["lawyers"] = llm_metadata_dict.get("lawyers", [])
-                    
+
                 except Exception as llm_error:
                     logger.warning(f"LLM metadata extraction failed: {llm_error}")
                     metadata["judges"] = []
                     metadata["lawyers"] = []
-                
+
             else:
                 # Fallback to original LLM-based extraction when no scraped metadata
                 logger.info(f"No scraped metadata for {filename}, using LLM extraction")
-                
+
                 # Basic metadata from filename
                 year_match = re.search(r"\[(\d{4})\]", filename)
                 if year_match:
@@ -911,10 +997,14 @@ class GraphBuilder:
                     else:
                         text_input = text
 
-                    llm_metadata = await self.processor.metadata_extraction_chain.ainvoke({
-                        "text": text_input,
-                        "filename": filename,
-                    })
+                    llm_metadata = (
+                        await self.processor.metadata_extraction_chain.ainvoke(
+                            {
+                                "text": text_input,
+                                "filename": filename,
+                            }
+                        )
+                    )
 
                     metadata_time = time.time() - start_time
                     perf_tracker.record_metric("llm_time", metadata_time)
@@ -931,31 +1021,41 @@ class GraphBuilder:
                     metadata["citation_formats"] = citation_formats
 
                 except Exception as llm_error:
-                    logger.warning(f"Structured metadata extraction failed: {llm_error}")
+                    logger.warning(
+                        f"Structured metadata extraction failed: {llm_error}"
+                    )
                     # Fallback to basic extraction with proper structure
                     if "SGCA" in filename or "Singapore" in text[:1000]:
-                        metadata.update({
-                            "jurisdiction": "Singapore",
-                            "court_level": "Court of Appeal" if "SGCA" in filename else "High Court",
-                            "parties": [],
-                            "legal_areas": [],
-                            "legal_tags": [],
-                            "judges": [],
-                            "lawyers": [],
-                        })
+                        metadata.update(
+                            {
+                                "jurisdiction": "Singapore",
+                                "court_level": "Court of Appeal"
+                                if "SGCA" in filename
+                                else "High Court",
+                                "parties": [],
+                                "legal_areas": [],
+                                "legal_tags": [],
+                                "judges": [],
+                                "lawyers": [],
+                            }
+                        )
                     else:
-                        metadata.update({
-                            "jurisdiction": "Unknown",
-                            "court_level": "Unknown",
-                            "parties": [],
-                            "legal_areas": [],
-                            "legal_tags": [],
-                            "judges": [],
-                            "lawyers": [],
-                        })
+                        metadata.update(
+                            {
+                                "jurisdiction": "Unknown",
+                                "court_level": "Unknown",
+                                "parties": [],
+                                "legal_areas": [],
+                                "legal_tags": [],
+                                "judges": [],
+                                "lawyers": [],
+                            }
+                        )
 
                     # Extract citation formats with empty parties (fallback)
-                    citation_formats = await self.processor.extract_citation_formats(text, filename, parties=[])
+                    citation_formats = await self.processor.extract_citation_formats(
+                        text, filename, parties=[]
+                    )
                     metadata["citation_formats"] = citation_formats
 
             # Override court_level and jurisdiction for Singapore cases to avoid LLM hallucinations
@@ -986,7 +1086,9 @@ class GraphBuilder:
             entities = await self.processor.extract_entities(full_text)
 
             # Create Case entities and relationships
-            for case_name in entities.get("cases", [])[:10]:  # Limit to prevent explosion
+            for case_name in entities.get("cases", [])[
+                :10
+            ]:  # Limit to prevent explosion
                 if case_name and len(case_name.strip()) > 5:
                     case_citation = extract_citation_from_name(case_name)
                     year = extract_year_from_citation(case_citation)
@@ -1063,7 +1165,7 @@ class GraphBuilder:
                     create_court_query,
                     {
                         "name": "Singapore High Court",
-                        "jurisdiction": "Singapore", 
+                        "jurisdiction": "Singapore",
                         "level": "Superior",
                         "source": source,
                     },
@@ -1127,7 +1229,7 @@ class GraphBuilder:
         """Create legal tag entities and relationships to the document."""
         if not legal_tags:
             return
-            
+
         for tag in legal_tags:
             if not tag or not tag.strip():
                 continue
@@ -1142,18 +1244,21 @@ class GraphBuilder:
                 lt.usage_count = coalesce(lt.usage_count, 0) + 1
             MERGE (d)-[:HAS_LEGAL_TAG]->(lt)
             """
-            
-            await self.neo4j.execute_write_query(create_tag_query, {
-                "source": source,
-                "tag_name": tag_clean
-            })
-            
+
+            await self.neo4j.execute_write_query(
+                create_tag_query, {"source": source, "tag_name": tag_clean}
+            )
+
         logger.info(f"Created {len(legal_tags)} legal tag relationships for {source}")
 
     async def _create_judge_entities(self, source: str, judges: List[Dict[str, str]]):
         """Create judge entities and relationships to the document."""
         for judge_data in judges:
-            if judge_data and judge_data.get("name") and len(judge_data["name"].strip()) > 2:
+            if (
+                judge_data
+                and judge_data.get("name")
+                and len(judge_data["name"].strip()) > 2
+            ):
                 create_judge_query = """
                 MERGE (j:Judge {name: $name})
                 SET j.role = $role,
@@ -1175,7 +1280,11 @@ class GraphBuilder:
     async def _create_lawyer_entities(self, source: str, lawyers: List[Dict[str, str]]):
         """Create lawyer entities and relationships to the document."""
         for lawyer_data in lawyers:
-            if lawyer_data and lawyer_data.get("name") and len(lawyer_data["name"].strip()) > 2:
+            if (
+                lawyer_data
+                and lawyer_data.get("name")
+                and len(lawyer_data["name"].strip()) > 2
+            ):
                 create_lawyer_query = """
                 MERGE (l:Lawyer {name: $name})
                 SET l.firm = $firm,
@@ -1303,30 +1412,30 @@ async def main():
         help="Directory containing PDF documents to ingest",
     )
     parser.add_argument(
-        "--no-cache", 
-        action="store_true", 
-        help="Disable embedding cache (regenerate all embeddings)"
+        "--no-cache",
+        action="store_true",
+        help="Disable embedding cache (regenerate all embeddings)",
     )
     parser.add_argument(
-        "--clear-cache", 
-        action="store_true", 
-        help="Clear the embedding cache before starting"
+        "--clear-cache",
+        action="store_true",
+        help="Clear the embedding cache before starting",
     )
     parser.add_argument(
         "--required-tags",
         type=str,
-        help="Filter documents to only process those with tags containing this string (case-insensitive)"
+        help="Filter documents to only process those with tags containing this string (case-insensitive)",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Simulate the ingestion process without making any actual operations (including LLM API calls)"
+        help="Simulate the ingestion process without making any actual operations (including LLM API calls)",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Limit the number of documents to process (for testing purposes)"
+        help="Limit the number of documents to process (for testing purposes)",
     )
 
     args = parser.parse_args()
@@ -1358,16 +1467,16 @@ async def main():
     # Initialize graph builder with caching options
     use_cache = not args.no_cache
     graph_builder = GraphBuilder(neo4j_conn, use_embedding_cache=use_cache)
-    
+
     # Load scraped metadata
     docs_dir = Path(args.docs_dir)
     if not docs_dir.exists():
         logger.error(f"Documents directory not found: {docs_dir}")
         sys.exit(1)
-    
+
     logger.info("📋 Loading scraped metadata...")
     graph_builder.load_scraped_metadata(docs_dir)
-    
+
     # Handle cache management
     if use_cache and args.clear_cache and not args.dry_run:
         logger.info("🗑️  Clearing LLM cache...")
@@ -1395,18 +1504,24 @@ async def main():
     # Filter by required tags if specified
     if args.required_tags:
         logger.info(f"🏷️  Filtering files by required tags: '{args.required_tags}'")
-        pdf_files = graph_builder.filter_files_by_required_tags(pdf_files, args.required_tags)
-        logger.info(f"📁 After filtering: {len(pdf_files)} PDF files match the required tags")
-        
+        pdf_files = graph_builder.filter_files_by_required_tags(
+            pdf_files, args.required_tags
+        )
+        logger.info(
+            f"📁 After filtering: {len(pdf_files)} PDF files match the required tags"
+        )
+
         if not pdf_files:
-            logger.warning(f"No PDF files match the required tags: '{args.required_tags}'")
+            logger.warning(
+                f"No PDF files match the required tags: '{args.required_tags}'"
+            )
             return
 
     logger.info(f"📁 Processing {len(pdf_files)} PDF files")
 
     if args.limit:
         logger.info(f"🔍 Limiting to {args.limit} files for testing")
-        pdf_files = pdf_files[:args.limit]
+        pdf_files = pdf_files[: args.limit]
 
     # Handle dry-run mode
     if args.dry_run:
@@ -1417,22 +1532,24 @@ async def main():
         if args.required_tags:
             logger.info(f"🏷️  Tag filter applied: '{args.required_tags}'")
         logger.info(f"📋 Files that would be processed: {len(pdf_files)}")
-        
+
         # Show some example files that would be processed
         if pdf_files:
             logger.info(f"📄 Example files to be processed:")
             for i, pdf_path in enumerate(pdf_files[:5], 1):
-                case_metadata = graph_builder.get_case_metadata_by_filename(pdf_path.name)
+                case_metadata = graph_builder.get_case_metadata_by_filename(
+                    pdf_path.name
+                )
                 if case_metadata:
-                    tags = case_metadata.get('tags', [])
+                    tags = case_metadata.get("tags", [])
                     tag_info = f" (tags: {len(tags)} found)" if tags else " (no tags)"
                 else:
                     tag_info = " (no metadata)"
                 logger.info(f"  {i}. {pdf_path.name}{tag_info}")
-            
+
             if len(pdf_files) > 5:
                 logger.info(f"  ... and {len(pdf_files) - 5} more files")
-        
+
         logger.info("=" * 60)
         logger.info("🔍 DRY-RUN completed - no actual operations performed")
         await neo4j_conn.close()

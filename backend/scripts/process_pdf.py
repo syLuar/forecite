@@ -566,7 +566,9 @@ class PDFProcessor:
                     )
                     footnote_count = len(footnote_map)
 
-                integrated_content = re.sub(r'(?m)^(\d+)', r'\n\n\1', integrated_content)
+                integrated_content = re.sub(
+                    r"(?m)^(\d+)", r"\n\n\1", integrated_content
+                )
 
                 return {
                     "page": page_num + 1,

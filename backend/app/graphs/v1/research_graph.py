@@ -82,10 +82,12 @@ async def query_planner_node(state: ResearchState) -> ResearchState:
     """
     # Stream custom update
     writer = get_stream_writer()
-    writer({
-        "brief_description": "Planning legal research",
-        "description": "Analyzing user query and generating an optimal search plan for legal precedent discovery."
-    })
+    writer(
+        {
+            "brief_description": "Planning legal research",
+            "description": "Analyzing user query and generating an optimal search plan for legal precedent discovery.",
+        }
+    )
     logger.info("Executing QueryPlannerNode")
 
     query_text = state["query_text"]
@@ -178,10 +180,12 @@ async def retrieval_node(state: ResearchState) -> ResearchState:
     """
     # Stream custom update
     writer = get_stream_writer()
-    writer({
-        "brief_description": "Retrieving legal documents",
-        "description": "Retrieving relevant legal documents and precedents using the current search plan and strategy."
-    })
+    writer(
+        {
+            "brief_description": "Retrieving legal documents",
+            "description": "Retrieving relevant legal documents and precedents using the current search plan and strategy.",
+        }
+    )
     logger.info("Executing RetrievalNode")
 
     search_params = state.get("search_params", {})
@@ -386,10 +390,12 @@ async def query_refiner_node(state: ResearchState) -> ResearchState:
     """
     # Stream custom update
     writer = get_stream_writer()
-    writer({
-        "brief_description": "Refining search strategy",
-        "description": "Refining the legal research strategy and search terms based on feedback from previous retrieval attempts."
-    })
+    writer(
+        {
+            "brief_description": "Refining search strategy",
+            "description": "Refining the legal research strategy and search terms based on feedback from previous retrieval attempts.",
+        }
+    )
     logger.info("Executing QueryRefinerNode")
 
     current_count = state.get("refinement_count", 0)
@@ -435,7 +441,9 @@ Create an improved search plan that addresses these issues.
         ]
     )
 
-    refined_plan_output = await structured_llm.ainvoke(prompt_template.format_messages())
+    refined_plan_output = await structured_llm.ainvoke(
+        prompt_template.format_messages()
+    )
     refined_plan = refined_plan_output.model_dump()
 
     # Update search parameters

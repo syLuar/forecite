@@ -18,7 +18,10 @@ logger = logging.getLogger(__name__)
 
 # Get database URL based on environment
 DATABASE_URL = settings.get_database_url()
-logger.info(f"Using database: {'PostgreSQL' if DATABASE_URL.startswith('postgresql') else 'SQLite'} (Environment: {settings.environment})")
+logger.info(
+    f"Using database: {'PostgreSQL' if DATABASE_URL.startswith('postgresql') else 'SQLite'} (Environment: {settings.environment})"
+)
+
 
 # Create engine with appropriate connection arguments
 def get_engine_config():
@@ -35,6 +38,7 @@ def get_engine_config():
             "max_overflow": 20,
             "pool_pre_ping": True,  # Validate connections before use
         }
+
 
 # Create engine
 engine = create_engine(DATABASE_URL, **get_engine_config())

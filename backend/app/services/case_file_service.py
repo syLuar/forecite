@@ -10,7 +10,13 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.core.database import get_db_context
-from app.models.database_models import CaseFile, CaseFileDocument, ArgumentDraft, MootCourtSession, CaseFileNote
+from app.models.database_models import (
+    CaseFile,
+    CaseFileDocument,
+    ArgumentDraft,
+    MootCourtSession,
+    CaseFileNote,
+)
 from app.models.schemas import (
     CaseFile as CaseFileSchema,
     CaseFileDocument as CaseFileDocumentSchema,
@@ -22,6 +28,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class DocumentService:
     """Service for managing documents."""
 
@@ -29,20 +36,20 @@ class DocumentService:
     def get_document_by_id(document_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve a document by its ID using Neo4j.
-        
+
         This method looks for a Chunk node with the given ID and returns
         comprehensive document and chunk information.
-        
+
         Args:
             document_id: The unique ID of the chunk/document
-            
+
         Returns:
             Dictionary containing document and chunk data, or None if not found
         """
         try:
             from app.tools.neo4j_tools import get_session
             from neo4j.exceptions import Neo4jError
-            
+
             with get_session() as session:
                 query = """
                 MATCH (chunk:Chunk {id: $document_id})-[:PART_OF]->(doc:Document)
@@ -71,10 +78,10 @@ class DocumentService:
                        doc.type as document_type,
                        doc.court_level as court_level
                 """
-                
+
                 result = session.run(query, {"document_id": document_id})
                 record = result.single()
-                
+
                 if record:
                     # Structure the return data similar to vector_search results
                     return {
@@ -92,26 +99,33 @@ class DocumentService:
                         "facts": record["facts"] or [],
                         "legal_tests": record["legal_tests"] or [],
                         "chunk_references": record["chunk_references"] or [],
-                        "references_outgoing": [ref for ref in record["references_outgoing"] if ref],
-                        "references_incoming": [ref for ref in record["references_incoming"] if ref],
+                        "references_outgoing": [
+                            ref for ref in record["references_outgoing"] if ref
+                        ],
+                        "references_incoming": [
+                            ref for ref in record["references_incoming"] if ref
+                        ],
                         "document_source": record["document_source"],
                         "citation": record["document_citation"],
-                        "title": record["document_citation"],  # Use citation as title for compatibility
+                        "title": record[
+                            "document_citation"
+                        ],  # Use citation as title for compatibility
                         "year": record["document_year"],
                         "jurisdiction": record["jurisdiction"],
                         "document_type": record["document_type"],
                         "parties": record["parties"] or [],
                         "court_level": record["court_level"],
                     }
-                
+
                 return None
-                
+
         except Neo4jError as e:
             logger.error(f"Neo4j error in get_document_by_id: {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error in get_document_by_id: {e}")
             return None
+
 
 class CaseFileService:
     """Service for managing case files and their documents."""
@@ -299,28 +313,33 @@ class CaseFileService:
                 db.query(CaseFileDocument)
                 .filter(
                     CaseFileDocument.case_file_id == case_file_id,
-                    CaseFileDocument.document_id == document_data.get("document_id", document_data.get("chunk_id")),
+                    CaseFileDocument.document_id
+                    == document_data.get("document_id", document_data.get("chunk_id")),
                 )
                 .first()
             )
 
             if existing:
                 return True  # Document already exists
-            
+
             # Handle case where document_id is not provided but chunk_id is
             if "document_id" not in document_data and "chunk_id" in document_data:
                 # Use chunk_id as document_id
                 document_data["document_id"] = document_data["chunk_id"]
-                
+
                 # Get additional document data from Neo4j
-                neo4j_data = DocumentService.get_document_by_id(document_data["document_id"])
+                neo4j_data = DocumentService.get_document_by_id(
+                    document_data["document_id"]
+                )
                 if neo4j_data:
                     # Merge Neo4j data with provided data, prioritizing provided data
                     for key, value in neo4j_data.items():
                         if key not in document_data:
                             document_data[key] = value
                 else:
-                    logger.warning(f"Could not find document data for chunk_id: {document_data['chunk_id']}")
+                    logger.warning(
+                        f"Could not find document data for chunk_id: {document_data['chunk_id']}"
+                    )
 
             citation = document_data["citation"]
             if "parties" in document_data and document_data["parties"]:
@@ -359,25 +378,27 @@ class CaseFileService:
 
             db.delete(document)
             return True
-            
+
     @staticmethod
     def remove_all_documents_from_case_file(case_file_id: int) -> int:
         """Remove all documents from a case file.
-        
+
         Returns:
             Number of documents removed
         """
         with get_db_context() as db:
             # Query to get the count before deletion
-            document_count = db.query(CaseFileDocument).filter(
-                CaseFileDocument.case_file_id == case_file_id
-            ).count()
-            
+            document_count = (
+                db.query(CaseFileDocument)
+                .filter(CaseFileDocument.case_file_id == case_file_id)
+                .count()
+            )
+
             # Delete all documents for this case file
             db.query(CaseFileDocument).filter(
                 CaseFileDocument.case_file_id == case_file_id
             ).delete()
-            
+
             return document_count
 
     @staticmethod
@@ -559,22 +580,24 @@ class ArgumentDraftService:
 
             # Update with new content from AI editing
             draft.drafted_argument = draft_response.drafted_argument
-            draft.strategy = draft_response.strategy.dict() if draft_response.strategy else None
+            draft.strategy = (
+                draft_response.strategy.dict() if draft_response.strategy else None
+            )
             draft.argument_structure = draft_response.argument_structure
             draft.citations_used = draft_response.citations_used
             draft.argument_strength = draft_response.argument_strength
             draft.precedent_coverage = draft_response.precedent_coverage
             draft.logical_coherence = draft_response.logical_coherence
-            
+
             # Add to revision history if it exists
             if draft.revision_history is None:
                 draft.revision_history = []
-            
+
             revision_entry = {
                 "timestamp": datetime.utcnow().isoformat(),
                 "type": "ai_edit",
                 "execution_time": draft_response.execution_time,
-                "critique_cycles": draft_response.total_critique_cycles
+                "critique_cycles": draft_response.total_critique_cycles,
             }
             draft.revision_history.append(revision_entry)
 
@@ -600,7 +623,7 @@ class MootCourtSessionService:
     ) -> int:
         """
         Save a moot court session to the database.
-        
+
         Args:
             case_file_id: ID of the case file
             draft_id: ID of the draft used (optional)
@@ -613,7 +636,7 @@ class MootCourtSessionService:
             research_comprehensiveness: Quality metric
             rebuttal_quality: Quality metric
             execution_time: Time taken to generate
-            
+
         Returns:
             ID of the created session
         """
@@ -633,12 +656,12 @@ class MootCourtSessionService:
                     execution_time=execution_time,
                     created_at=datetime.utcnow(),  # Explicitly set created_at
                 )
-                
+
                 db.add(session)
                 db.flush()  # To get the ID and ensure server defaults are applied
-                
+
                 return session.id
-                
+
         except Exception as e:
             logger.error(f"Error saving moot court session: {e}")
             raise
@@ -647,10 +670,10 @@ class MootCourtSessionService:
     def list_sessions_for_case_file(case_file_id: int) -> List[Dict[str, Any]]:
         """
         List all moot court sessions for a case file.
-        
+
         Args:
             case_file_id: ID of the case file
-            
+
         Returns:
             List of session summary data
         """
@@ -658,57 +681,73 @@ class MootCourtSessionService:
             with get_db_context() as db:
                 sessions = (
                     db.query(MootCourtSession)
-                    .outerjoin(ArgumentDraft, MootCourtSession.draft_id == ArgumentDraft.id)
+                    .outerjoin(
+                        ArgumentDraft, MootCourtSession.draft_id == ArgumentDraft.id
+                    )
                     .filter(MootCourtSession.case_file_id == case_file_id)
                     .order_by(desc(MootCourtSession.created_at))
                     .all()
                 )
-                
+
                 session_list = []
                 for session in sessions:
                     # Get draft title if available
                     draft_title = None
                     if session.draft_id:
-                        draft = db.query(ArgumentDraft).filter(ArgumentDraft.id == session.draft_id).first()
+                        draft = (
+                            db.query(ArgumentDraft)
+                            .filter(ArgumentDraft.id == session.draft_id)
+                            .first()
+                        )
                         if draft:
                             draft_title = draft.title
-                    
-                    counterargument_count = len(session.counterarguments) if session.counterarguments else 0
-                    
-                    session_list.append({
-                        "id": session.id,
-                        "title": session.title,
-                        "created_at": session.created_at,
-                        "draft_title": draft_title,
-                        "counterargument_count": counterargument_count,
-                        "counterargument_strength": session.counterargument_strength,
-                        "research_comprehensiveness": session.research_comprehensiveness,
-                    })
-                
+
+                    counterargument_count = (
+                        len(session.counterarguments) if session.counterarguments else 0
+                    )
+
+                    session_list.append(
+                        {
+                            "id": session.id,
+                            "title": session.title,
+                            "created_at": session.created_at,
+                            "draft_title": draft_title,
+                            "counterargument_count": counterargument_count,
+                            "counterargument_strength": session.counterargument_strength,
+                            "research_comprehensiveness": session.research_comprehensiveness,
+                        }
+                    )
+
                 return session_list
-                
+
         except Exception as e:
-            logger.error(f"Error listing moot court sessions for case file {case_file_id}: {e}")
+            logger.error(
+                f"Error listing moot court sessions for case file {case_file_id}: {e}"
+            )
             return []
 
     @staticmethod
     def get_session(session_id: int) -> Optional[Dict[str, Any]]:
         """
         Get a specific moot court session by ID.
-        
+
         Args:
             session_id: ID of the session
-            
+
         Returns:
             Session data or None if not found
         """
         try:
             with get_db_context() as db:
-                session = db.query(MootCourtSession).filter(MootCourtSession.id == session_id).first()
-                
+                session = (
+                    db.query(MootCourtSession)
+                    .filter(MootCourtSession.id == session_id)
+                    .first()
+                )
+
                 if not session:
                     return None
-                
+
                 return {
                     "id": session.id,
                     "case_file_id": session.case_file_id,
@@ -724,7 +763,7 @@ class MootCourtSessionService:
                     "execution_time": session.execution_time,
                     "created_at": session.created_at,
                 }
-                
+
         except Exception as e:
             logger.error(f"Error getting moot court session {session_id}: {e}")
             return None
@@ -733,25 +772,29 @@ class MootCourtSessionService:
     def delete_session(session_id: int) -> bool:
         """
         Delete a moot court session.
-        
+
         Args:
             session_id: ID of the session to delete
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             with get_db_context() as db:
-                session = db.query(MootCourtSession).filter(MootCourtSession.id == session_id).first()
-                
+                session = (
+                    db.query(MootCourtSession)
+                    .filter(MootCourtSession.id == session_id)
+                    .first()
+                )
+
                 if not session:
                     return False
-                
+
                 db.delete(session)
                 db.commit()
-                
+
                 return True
-                
+
         except Exception as e:
             logger.error(f"Error deleting moot court session {session_id}: {e}")
             return False
@@ -760,26 +803,30 @@ class MootCourtSessionService:
     def update_session_title(session_id: int, title: str) -> bool:
         """
         Update a moot court session's title.
-        
+
         Args:
             session_id: ID of the session
             title: New title
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             with get_db_context() as db:
-                session = db.query(MootCourtSession).filter(MootCourtSession.id == session_id).first()
-                
+                session = (
+                    db.query(MootCourtSession)
+                    .filter(MootCourtSession.id == session_id)
+                    .first()
+                )
+
                 if not session:
                     return False
-                
+
                 session.title = title
                 db.commit()
-                
+
                 return True
-                
+
         except Exception as e:
             logger.error(f"Error updating moot court session {session_id}: {e}")
             return False
@@ -799,7 +846,7 @@ class CaseFileNoteService:
     ) -> Optional[int]:
         """
         Add a note to a case file.
-        
+
         Args:
             case_file_id: ID of the case file
             content: Content of the note
@@ -807,14 +854,16 @@ class CaseFileNoteService:
             author_name: Optional name/identifier for the author
             note_type: Optional type of note ('research', 'strategy', 'fact', 'reminder', etc.)
             tags: Optional tags for organization
-            
+
         Returns:
             ID of the created note, or None if failed
         """
         try:
             with get_db_context() as db:
                 # Check if case file exists
-                case_file = db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+                case_file = (
+                    db.query(CaseFile).filter(CaseFile.id == case_file_id).first()
+                )
                 if not case_file:
                     logger.warning(f"Case file {case_file_id} not found")
                     return None
@@ -829,7 +878,7 @@ class CaseFileNoteService:
                 )
                 db.add(note)
                 db.flush()
-                
+
                 logger.info(f"Added note {note.id} to case file {case_file_id}")
                 return note.id
 
@@ -847,28 +896,33 @@ class CaseFileNoteService:
     ) -> bool:
         """
         Update an existing note.
-        
+
         Args:
             note_id: ID of the note to update
             content: Updated content
             note_type: Updated note type
             tags: Updated tags
             author_type_restriction: If provided, only allow updates to notes with this author_type
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             with get_db_context() as db:
                 note = db.query(CaseFileNote).filter(CaseFileNote.id == note_id).first()
-                
+
                 if not note:
                     logger.warning(f"Note {note_id} not found")
                     return False
-                
+
                 # Check author type restriction (for security)
-                if author_type_restriction and note.author_type != author_type_restriction:
-                    logger.warning(f"Update denied: note {note_id} has author_type '{note.author_type}', but restriction requires '{author_type_restriction}'")
+                if (
+                    author_type_restriction
+                    and note.author_type != author_type_restriction
+                ):
+                    logger.warning(
+                        f"Update denied: note {note_id} has author_type '{note.author_type}', but restriction requires '{author_type_restriction}'"
+                    )
                     return False
 
                 note.content = content
@@ -876,7 +930,7 @@ class CaseFileNoteService:
                     note.note_type = note_type
                 if tags is not None:
                     note.tags = tags
-                
+
                 logger.info(f"Updated note {note_id}")
                 return True
 
@@ -885,32 +939,39 @@ class CaseFileNoteService:
             return False
 
     @staticmethod
-    def delete_note(note_id: int, author_type_restriction: Optional[str] = None) -> bool:
+    def delete_note(
+        note_id: int, author_type_restriction: Optional[str] = None
+    ) -> bool:
         """
         Delete a note.
-        
+
         Args:
             note_id: ID of the note to delete
             author_type_restriction: If provided, only allow deletion of notes with this author_type
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             with get_db_context() as db:
                 note = db.query(CaseFileNote).filter(CaseFileNote.id == note_id).first()
-                
+
                 if not note:
                     logger.warning(f"Note {note_id} not found")
                     return False
-                
+
                 # Check author type restriction (for security)
-                if author_type_restriction and note.author_type != author_type_restriction:
-                    logger.warning(f"Delete denied: note {note_id} has author_type '{note.author_type}', but restriction requires '{author_type_restriction}'")
+                if (
+                    author_type_restriction
+                    and note.author_type != author_type_restriction
+                ):
+                    logger.warning(
+                        f"Delete denied: note {note_id} has author_type '{note.author_type}', but restriction requires '{author_type_restriction}'"
+                    )
                     return False
 
                 db.delete(note)
-                
+
                 logger.info(f"Deleted note {note_id}")
                 return True
 
@@ -922,10 +983,10 @@ class CaseFileNoteService:
     def get_notes_for_case_file(case_file_id: int) -> List[Dict[str, Any]]:
         """
         Get all notes for a case file.
-        
+
         Args:
             case_file_id: ID of the case file
-            
+
         Returns:
             List of notes
         """

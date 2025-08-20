@@ -1034,10 +1034,10 @@ def trace_argument_flow(
 def get_enhanced_chunk_context(chunk_id: str) -> Dict[str, Any]:
     """
     Get enriched context for a chunk including surrounding chunks, references, and cited cases.
-    
+
     Args:
         chunk_id: The chunk ID to get enhanced context for
-        
+
     Returns:
         Dictionary with comprehensive chunk context
     """
@@ -1091,18 +1091,20 @@ def get_enhanced_chunk_context(chunk_id: str) -> Dict[str, Any]:
                        year: cited_case.year
                    }) as cited_cases
             """
-            
+
             result = session.run(query, {"chunk_id": chunk_id})
             record = result.single()
-            
+
             if record:
                 data = dict(record)
                 # Sort surrounding chunks by index
-                data["surrounding_chunks"] = sorted([c for c in data["surrounding_chunks"] if c["chunk_id"]], 
-                                                   key=lambda x: x["chunk_index"])
+                data["surrounding_chunks"] = sorted(
+                    [c for c in data["surrounding_chunks"] if c["chunk_id"]],
+                    key=lambda x: x["chunk_index"],
+                )
                 return data
             return {}
-            
+
     except Exception as e:
         logger.error(f"Error in get_enhanced_chunk_context: {e}")
         return {}
@@ -1111,10 +1113,10 @@ def get_enhanced_chunk_context(chunk_id: str) -> Dict[str, Any]:
 def bulk_precedent_analysis(case_citations: List[str]) -> Dict[str, Any]:
     """
     Analyze multiple cases for precedent strength, jurisdiction, and recency in a single query.
-    
+
     Args:
         case_citations: List of case citations to analyze
-        
+
     Returns:
         Dictionary with comprehensive precedent analysis
     """
@@ -1146,21 +1148,25 @@ def bulk_precedent_analysis(case_citations: List[str]) -> Dict[str, Any]:
                    size(citing_jurisdictions) as jurisdictional_reach
             ORDER BY precedent_strength DESC
             """
-            
+
             result = session.run(query, {"case_citations": case_citations})
             records = [dict(record) for record in result]
-            
+
             # Calculate overall metrics
             total_strength = sum(r.get("precedent_strength", 0) for r in records)
             avg_recency = sum(
                 val
                 for r in records
-                if (val := r.get("most_recent_citation")) is not None and isinstance(val, (int, float)) and val > 0
+                if (val := r.get("most_recent_citation")) is not None
+                and isinstance(val, (int, float))
+                and val > 0
             )
-            
+
             if avg_recency > 0:
-                avg_recency = avg_recency / len([r for r in records if r.get("most_recent_citation", 0) > 0])
-            
+                avg_recency = avg_recency / len(
+                    [r for r in records if r.get("most_recent_citation", 0) > 0]
+                )
+
             return {
                 "individual_analysis": records,
                 "summary": {
@@ -1168,10 +1174,14 @@ def bulk_precedent_analysis(case_citations: List[str]) -> Dict[str, Any]:
                     "found_cases": len([r for r in records if r.get("case_year")]),
                     "total_precedent_strength": total_strength,
                     "average_recency": avg_recency,
-                    "strongest_precedent": max(records, key=lambda x: x.get("precedent_strength", 0)) if records else None
-                }
+                    "strongest_precedent": max(
+                        records, key=lambda x: x.get("precedent_strength", 0)
+                    )
+                    if records
+                    else None,
+                },
             }
-            
+
     except Exception as e:
         logger.error(f"Error in bulk_precedent_analysis: {e}")
         return {"error": str(e)}
@@ -1180,11 +1190,11 @@ def bulk_precedent_analysis(case_citations: List[str]) -> Dict[str, Any]:
 def find_precedent_chains(case_citation: str, max_depth: int = 3) -> Dict[str, Any]:
     """
     Follow citation chains to build authority hierarchies and precedent relationships.
-    
+
     Args:
         case_citation: Starting case citation
         max_depth: Maximum depth to follow citation chains
-        
+
     Returns:
         Dictionary with precedent chains and authority analysis
     """
@@ -1221,14 +1231,14 @@ def find_precedent_chains(case_citation: str, max_depth: int = 3) -> Dict[str, A
                    size(authority_chains) as authorities_count,
                    size(citing_chains) as citations_count
             """
-            
+
             result = session.run(query, {"case_citation": case_citation})
             record = result.single()
-            
+
             if record:
                 return dict(record)
             return {"base_case": case_citation, "error": "Case not found"}
-            
+
     except Exception as e:
         logger.error(f"Error in find_precedent_chains: {e}")
         return {"error": str(e)}
@@ -1237,56 +1247,56 @@ def find_precedent_chains(case_citation: str, max_depth: int = 3) -> Dict[str, A
 def extract_case_patterns(query_text: str) -> List[str]:
     """
     Extract potential case citations from query text using regex patterns.
-    
+
     Args:
         query_text: Text to search for case citation patterns
-        
+
     Returns:
         List of potential case citations found
     """
     import re
-    
+
     # Common citation patterns
     patterns = [
-        r'\[\d{4}\]\s+\w+\s+\d+',  # [2019] SGCA 42
-        r'\(\d{4}\)\s+\d+\s+\w+',  # (2019) 1 SLR 123
-        r'\w+\s+v\.?\s+\w+',       # Case v Case
+        r"\[\d{4}\]\s+\w+\s+\d+",  # [2019] SGCA 42
+        r"\(\d{4}\)\s+\d+\s+\w+",  # (2019) 1 SLR 123
+        r"\w+\s+v\.?\s+\w+",  # Case v Case
     ]
-    
+
     citations = []
     for pattern in patterns:
         matches = re.findall(pattern, query_text, re.IGNORECASE)
         citations.extend(matches)
-    
+
     return list(set(citations))  # Remove duplicates
 
 
 def smart_context_expansion(initial_results: List[Dict]) -> List[Dict]:
     """
     Use graph relationships to enrich search results with context.
-    
+
     Args:
         initial_results: List of initial search results
-        
+
     Returns:
         List of enhanced results with additional context
     """
     enhanced_results = []
-    
+
     for result in initial_results[:8]:  # Limit to top 8 to avoid too much processing
         chunk_id = result.get("chunk_id")
         if chunk_id:
             # Get enhanced context
             context = get_enhanced_chunk_context(chunk_id)
             result["enhanced_context"] = context
-            
+
             # Add precedent analysis if cases are mentioned
             if "cases" in result and result["cases"]:
                 case_analysis = bulk_precedent_analysis(result["cases"])
                 result["precedent_analysis"] = case_analysis
-        
+
         enhanced_results.append(result)
-    
+
     return enhanced_results
 
 
@@ -1300,7 +1310,7 @@ def close_neo4j_connection():
 # List of all available tools for easy import
 __all__ = [
     "vector_search",
-    "fulltext_search", 
+    "fulltext_search",
     "find_case_citations",
     "assess_precedent_strength",
     "find_legal_concepts",
@@ -1314,7 +1324,7 @@ __all__ = [
     "get_chunk_context",
     "trace_argument_flow",
     "get_enhanced_chunk_context",
-    "bulk_precedent_analysis", 
+    "bulk_precedent_analysis",
     "find_precedent_chains",
     "extract_case_patterns",
     "smart_context_expansion",

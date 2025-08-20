@@ -10,22 +10,22 @@ from .drafting_graph import drafting_graph
 from .counterargument_graph import counterargument_graph
 from .state import (
     ResearchState,
-    DraftingState, 
+    DraftingState,
     CounterArgumentState,
     # Legacy compatibility
     CaseFileDocument,
     SearchPlan,
-    ArgumentStrategy
+    ArgumentStrategy,
 )
 
 __all__ = [
     "research_graph",
-    "drafting_graph", 
+    "drafting_graph",
     "counterargument_graph",
     "ResearchState",
     "DraftingState",
     "CounterArgumentState",
     "CaseFileDocument",
-    "SearchPlan", 
-    "ArgumentStrategy"
+    "SearchPlan",
+    "ArgumentStrategy",
 ]

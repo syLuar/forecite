@@ -63,7 +63,7 @@ class Settings(BaseSettings):
         # If DATABASE_URL is explicitly set, use it
         if self.database_url:
             return self.database_url
-        
+
         # Use PostgreSQL for production environments, SQLite for development/testing
         if self.environment.lower() in ["production", "prod", "staging", "stage"]:
             return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

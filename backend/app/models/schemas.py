@@ -27,9 +27,7 @@ class ResearchQueryRequest(BaseModel):
     max_results: Optional[int] = Field(
         15, description="Maximum number of results to return"
     )
-    stream: Optional[bool] = Field(
-        False, description="Enable streaming responses"
-    )
+    stream: Optional[bool] = Field(False, description="Enable streaming responses")
 
 
 class RetrievedDocument(BaseModel):
@@ -95,7 +93,9 @@ class CaseFile(BaseModel):
 class ArgumentDraftRequest(BaseModel):
     """Request model for argument drafting endpoint."""
 
-    case_file_id: int = Field(..., description="ID of the case file containing static facts")
+    case_file_id: int = Field(
+        ..., description="ID of the case file containing static facts"
+    )
     legal_question: Optional[str] = Field(
         None, description="Specific legal question to address"
     )
@@ -105,9 +105,7 @@ class ArgumentDraftRequest(BaseModel):
     argument_preferences: Optional[Dict[str, Any]] = Field(
         None, description="User preferences for argument style/approach"
     )
-    stream: Optional[bool] = Field(
-        False, description="Enable streaming responses"
-    )
+    stream: Optional[bool] = Field(False, description="Enable streaming responses")
 
 
 class LegalArgument(BaseModel):
@@ -200,13 +198,20 @@ class CitationNetwork(BaseModel):
 # Case File Management Models
 class CaseFileNote(BaseModel):
     """Model for a case file note."""
-    
+
     id: int
     content: str
     author_type: str = Field(..., description="Type of author: 'user' or 'ai'")
-    author_name: Optional[str] = Field(None, description="Optional name/identifier for the author")
-    note_type: Optional[str] = Field(None, description="Type of note: 'research', 'strategy', 'fact', 'reminder', etc.")
-    tags: Optional[List[str]] = Field(None, description="Optional tags for organization")
+    author_name: Optional[str] = Field(
+        None, description="Optional name/identifier for the author"
+    )
+    note_type: Optional[str] = Field(
+        None,
+        description="Type of note: 'research', 'strategy', 'fact', 'reminder', etc.",
+    )
+    tags: Optional[List[str]] = Field(
+        None, description="Optional tags for organization"
+    )
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -217,7 +222,10 @@ class CreateCaseFileRequest(BaseModel):
     title: str = Field(..., description="Title for the case file")
     description: Optional[str] = Field(None, description="Optional description")
     user_facts: Optional[str] = Field(None, description="Client's fact pattern")
-    party_represented: Optional[str] = Field(None, description="Which party the user represents (e.g., 'Plaintiff', 'Defendant', 'Petitioner', 'Respondent', 'Appellant', 'Appellee')")
+    party_represented: Optional[str] = Field(
+        None,
+        description="Which party the user represents (e.g., 'Plaintiff', 'Defendant', 'Petitioner', 'Respondent', 'Appellant', 'Appellee')",
+    )
 
 
 class UpdateCaseFileRequest(BaseModel):
@@ -226,7 +234,9 @@ class UpdateCaseFileRequest(BaseModel):
     title: Optional[str] = Field(None, description="Updated title")
     description: Optional[str] = Field(None, description="Updated description")
     user_facts: Optional[str] = Field(None, description="Updated fact pattern")
-    party_represented: Optional[str] = Field(None, description="Updated party representation")
+    party_represented: Optional[str] = Field(
+        None, description="Updated party representation"
+    )
 
 
 class CaseFileResponse(BaseModel):
@@ -312,17 +322,15 @@ class SavedArgumentDraft(BaseModel):
 
 class EditDraftRequest(BaseModel):
     """Request model for editing a draft with AI."""
-    
+
     draft_id: int
     edit_instructions: str
-    stream: Optional[bool] = Field(
-        False, description="Enable streaming responses"
-    )
+    stream: Optional[bool] = Field(False, description="Enable streaming responses")
 
 
 class UpdateDraftRequest(BaseModel):
     """Request model for manually updating a draft."""
-    
+
     drafted_argument: str
     title: Optional[str] = None
 
@@ -330,7 +338,7 @@ class UpdateDraftRequest(BaseModel):
 # Moot Court Models
 class CounterArgument(BaseModel):
     """Model for a single counterargument."""
-    
+
     title: str
     argument: str
     supporting_authority: str
@@ -340,7 +348,7 @@ class CounterArgument(BaseModel):
 
 class CounterArgumentRebuttal(BaseModel):
     """Model for a rebuttal to a counterargument."""
-    
+
     title: str
     content: str
     authority: str
@@ -349,17 +357,24 @@ class CounterArgumentRebuttal(BaseModel):
 # Case File Notes Models
 class AddCaseFileNoteRequest(BaseModel):
     """Request model for adding a note to a case file."""
-    
+
     content: str = Field(..., description="Content of the note")
     author_type: str = Field(..., description="Type of author: 'user' or 'ai'")
-    author_name: Optional[str] = Field(None, description="Optional name/identifier for the author")
-    note_type: Optional[str] = Field(None, description="Type of note: 'research', 'strategy', 'fact', 'reminder', etc.")
-    tags: Optional[List[str]] = Field(None, description="Optional tags for organization")
+    author_name: Optional[str] = Field(
+        None, description="Optional name/identifier for the author"
+    )
+    note_type: Optional[str] = Field(
+        None,
+        description="Type of note: 'research', 'strategy', 'fact', 'reminder', etc.",
+    )
+    tags: Optional[List[str]] = Field(
+        None, description="Optional tags for organization"
+    )
 
 
 class UpdateCaseFileNoteRequest(BaseModel):
     """Request model for updating a case file note."""
-    
+
     content: str = Field(..., description="Updated content of the note")
     note_type: Optional[str] = Field(None, description="Updated type of note")
     tags: Optional[List[str]] = Field(None, description="Updated tags for organization")
@@ -367,17 +382,15 @@ class UpdateCaseFileNoteRequest(BaseModel):
 
 class GenerateCounterArgumentsRequest(BaseModel):
     """Request model for generating counterarguments."""
-    
+
     case_file_id: int = Field(..., description="ID of the case file")
     draft_id: Optional[int] = Field(None, description="ID of specific draft to analyze")
-    stream: Optional[bool] = Field(
-        False, description="Enable streaming responses"
-    )
+    stream: Optional[bool] = Field(False, description="Enable streaming responses")
 
 
 class GenerateCounterArgumentsResponse(BaseModel):
     """Response model for generated counterarguments."""
-    
+
     counterarguments: List[CounterArgument]
     rebuttals: List[List[CounterArgumentRebuttal]]  # Rebuttals for each counterargument
     execution_time: Optional[float] = None
@@ -385,14 +398,18 @@ class GenerateCounterArgumentsResponse(BaseModel):
 
 class SaveMootCourtSessionRequest(BaseModel):
     """Request model for saving a moot court session."""
-    
+
     case_file_id: int = Field(..., description="ID of the case file")
     draft_id: Optional[int] = Field(None, description="ID of the draft used")
     title: str = Field(..., description="Title for the moot court session")
     counterarguments: List[CounterArgument]
     rebuttals: List[List[CounterArgumentRebuttal]]
-    source_arguments: Optional[List[Dict[str, Any]]] = Field(None, description="Source arguments analyzed")
-    research_context: Optional[Dict[str, Any]] = Field(None, description="RAG retrieval context")
+    source_arguments: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Source arguments analyzed"
+    )
+    research_context: Optional[Dict[str, Any]] = Field(
+        None, description="RAG retrieval context"
+    )
     counterargument_strength: Optional[float] = None
     research_comprehensiveness: Optional[float] = None
     rebuttal_quality: Optional[float] = None
@@ -401,7 +418,7 @@ class SaveMootCourtSessionRequest(BaseModel):
 
 class MootCourtSessionListItem(BaseModel):
     """Model for moot court session list item."""
-    
+
     id: int
     title: str
     created_at: Optional[datetime] = None
@@ -413,7 +430,7 @@ class MootCourtSessionListItem(BaseModel):
 
 class SavedMootCourtSession(BaseModel):
     """Model for a saved moot court session."""
-    
+
     id: int
     case_file_id: int
     draft_id: Optional[int] = None
@@ -432,19 +449,33 @@ class SavedMootCourtSession(BaseModel):
 # Research Agent API Models
 class ConductResearchRequest(BaseModel):
     """Request model for conducting legal research using the research agent."""
-    
-    case_file_id: int = Field(..., description="ID of the case file to organize research in")
-    legal_issues: Optional[List[str]] = Field(None, description="Optional list of legal issues to research. If not provided, AI will identify issues from case facts.")
-    jurisdiction: Optional[str] = Field("Singapore", description="Relevant jurisdiction")
+
+    case_file_id: int = Field(
+        ..., description="ID of the case file to organize research in"
+    )
+    legal_issues: Optional[List[str]] = Field(
+        None,
+        description="Optional list of legal issues to research. If not provided, AI will identify issues from case facts.",
+    )
+    jurisdiction: Optional[str] = Field(
+        "Singapore", description="Relevant jurisdiction"
+    )
     stream: Optional[bool] = Field(False, description="Enable streaming responses")
 
 
 class ConductResearchResponse(BaseModel):
     """Response model for legal research endpoint."""
-    
-    documents_added: int = Field(..., description="Number of documents added to case file")
-    notes_added: int = Field(..., description="Number of research notes added to case file") 
-    legal_issues_researched: List[str] = Field(..., description="Legal issues that were researched")
-    execution_time: Optional[float] = Field(None, description="Time taken to complete research")
-    jurisdiction: str = Field(..., description="Jurisdiction researched")
 
+    documents_added: int = Field(
+        ..., description="Number of documents added to case file"
+    )
+    notes_added: int = Field(
+        ..., description="Number of research notes added to case file"
+    )
+    legal_issues_researched: List[str] = Field(
+        ..., description="Legal issues that were researched"
+    )
+    execution_time: Optional[float] = Field(
+        None, description="Time taken to complete research"
+    )
+    jurisdiction: str = Field(..., description="Jurisdiction researched")

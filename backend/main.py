@@ -54,9 +54,22 @@ from app.models.schemas import (
     ConductResearchRequest,
     ConductResearchResponse,
 )
-from app.graphs import research_graph, drafting_graph, counterargument_graph, research_agent, ResearchState, DraftingState, CounterArgumentState
+from app.graphs import (
+    research_graph,
+    drafting_graph,
+    counterargument_graph,
+    research_agent,
+    ResearchState,
+    DraftingState,
+    CounterArgumentState,
+)
 from app.tools.neo4j_tools import close_neo4j_connection
-from app.services.case_file_service import CaseFileService, ArgumentDraftService, MootCourtSessionService, CaseFileNoteService
+from app.services.case_file_service import (
+    CaseFileService,
+    ArgumentDraftService,
+    MootCourtSessionService,
+    CaseFileNoteService,
+)
 from app.core.database import create_tables
 
 from app.core.config import settings
@@ -82,7 +95,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Legal Research Assistant Backend")
     logger.info(f"Environment: {settings.environment}")
-    
+
     # Log database configuration
     database_url = settings.get_database_url()
     db_type = "PostgreSQL" if database_url.startswith("postgresql") else "SQLite"
@@ -99,7 +112,9 @@ async def lifespan(app: FastAPI):
             logger.error("1. PostgreSQL server is running")
             logger.error("2. Database exists and user has CREATE privileges")
             logger.error("3. Connection parameters are correct")
-            logger.error("4. Run scripts/postgresql_setup.sql as PostgreSQL superuser if needed")
+            logger.error(
+                "4. Run scripts/postgresql_setup.sql as PostgreSQL superuser if needed"
+            )
         raise
 
     yield
@@ -107,13 +122,14 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Legal Research Assistant Backend")
     close_neo4j_connection()
 
+
 origins = [
     "https://hawkihi.site",
     "http://hawkihi.site",  # You might want to allow non-HTTPS for testing
     "https://forecite.site",
     "http://forecite.site",  # Non-HTTPS for testing
     "http://localhost",
-    "http://localhost:3000", # Common for local React development
+    "http://localhost:3000",  # Common for local React development
 ]
 
 app = FastAPI(
@@ -126,9 +142,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,  # List of origins that are allowed to make requests
-    allow_credentials=True, # Allow cookies to be included in requests
-    allow_methods=["*"],    # Allow all standard methods (GET, POST, etc.)
-    allow_headers=["*"],    # Allow all headers
+    allow_credentials=True,  # Allow cookies to be included in requests
+    allow_methods=["*"],  # Allow all standard methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
 # Serve documentation at /docs path
@@ -277,18 +293,22 @@ async def conduct_research(request: ConductResearchRequest):
             )
 
         # Extract case facts
-        case_facts = case_file_data.get('user_facts', '')
+        case_facts = case_file_data.get("user_facts", "")
         if not case_facts or not case_facts.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Case file must contain case facts before conducting research",
             )
 
-        party_represented = case_file_data.get('party_represented', '')
-        
+        party_represented = case_file_data.get("party_represented", "")
+
         # Handle optional legal issues
         legal_issues = request.legal_issues or []
-        issue_count_text = f"{len(legal_issues)} legal issues" if legal_issues else "AI-identified legal issues"
+        issue_count_text = (
+            f"{len(legal_issues)} legal issues"
+            if legal_issues
+            else "AI-identified legal issues"
+        )
         logger.info(f"Conducting research for {issue_count_text}")
 
         # Define response processor for streaming
@@ -311,11 +331,11 @@ async def conduct_research(request: ConductResearchRequest):
 
                 # Get updated case file to count added documents and notes
                 updated_case_file = CaseFileService.get_case_file(request.case_file_id)
-                original_doc_count = len(case_file_data.get('documents', []))
-                original_note_count = len(case_file_data.get('notes', []))
-                new_doc_count = len(updated_case_file.get('documents', []))
-                new_note_count = len(updated_case_file.get('notes', []))
-                
+                original_doc_count = len(case_file_data.get("documents", []))
+                original_note_count = len(case_file_data.get("notes", []))
+                new_doc_count = len(updated_case_file.get("documents", []))
+                new_note_count = len(updated_case_file.get("notes", []))
+
                 documents_added = max(0, new_doc_count - original_doc_count)
                 notes_added = max(0, new_note_count - original_note_count)
 
@@ -324,7 +344,7 @@ async def conduct_research(request: ConductResearchRequest):
                 notes_added=notes_added,
                 legal_issues_researched=legal_issues,
                 execution_time=execution_time,
-                jurisdiction=request.jurisdiction or "Singapore"
+                jurisdiction=request.jurisdiction or "Singapore",
             )
             return response.model_dump()
 
@@ -341,7 +361,10 @@ async def conduct_research(request: ConductResearchRequest):
             logger.info("Starting streaming research agent execution")
             return create_streaming_response(
                 stream_graph_with_final_response(
-                    research_agent.get_agent_executor(), initial_state, process_research_response, config={"recursion_limit": 60}
+                    research_agent.get_agent_executor(),
+                    initial_state,
+                    process_research_response,
+                    config={"recursion_limit": 60},
                 )
             )
 
@@ -352,9 +375,7 @@ async def conduct_research(request: ConductResearchRequest):
         response_dict = await process_research_response(final_state)
         response = ConductResearchResponse(**response_dict)
 
-        logger.info(
-            f"Research completed in {response.execution_time:.2f}s"
-        )
+        logger.info(f"Research completed in {response.execution_time:.2f}s")
         return response
 
     except HTTPException:
@@ -378,7 +399,9 @@ async def draft_argument(request: ArgumentDraftRequest):
     start_time = time.time()
 
     try:
-        logger.info(f"Starting argument drafting for case file ID: {request.case_file_id}")
+        logger.info(
+            f"Starting argument drafting for case file ID: {request.case_file_id}"
+        )
 
         # Get the case file to retrieve static facts and documents
         case_file_data = CaseFileService.get_case_file(request.case_file_id)
@@ -389,35 +412,39 @@ async def draft_argument(request: ArgumentDraftRequest):
             )
 
         # Extract user facts from case file (static)
-        user_facts = case_file_data.get('user_facts', '')
+        user_facts = case_file_data.get("user_facts", "")
         if not user_facts or not user_facts.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Case file must contain case facts before drafting arguments",
             )
 
-        logger.info(f"Using case facts from case file and {len(case_file_data.get('documents', []))} precedents")
+        logger.info(
+            f"Using case facts from case file and {len(case_file_data.get('documents', []))} precedents"
+        )
 
         # Build case file structure for the drafting graph
         case_file_for_graph = {
-            "documents": case_file_data.get('documents', []),
-            "total_documents": case_file_data.get('total_documents', 0),
-            "created_at": case_file_data.get('created_at'),
+            "documents": case_file_data.get("documents", []),
+            "total_documents": case_file_data.get("total_documents", 0),
+            "created_at": case_file_data.get("created_at"),
         }
 
         # Initialize the drafting graph state
         initial_state: DraftingState = {
             "user_facts": user_facts,
             "case_file": case_file_for_graph,
-            "party_represented": case_file_data.get('party_represented'),
+            "party_represented": case_file_data.get("party_represented"),
         }
 
         # Add optional legal question and additional instructions
         if request.legal_question:
             initial_state["legal_question"] = request.legal_question
-        
+
         if request.additional_drafting_instructions:
-            initial_state["additional_drafting_instructions"] = request.additional_drafting_instructions
+            initial_state["additional_drafting_instructions"] = (
+                request.additional_drafting_instructions
+            )
 
         # Define response processor for streaming
         async def process_drafting_response(final_state):
@@ -732,17 +759,20 @@ async def remove_all_documents_from_case_file(case_file_id: int):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Case file {case_file_id} not found",
             )
-        
+
         # Delete all documents
-        removed_count = CaseFileService.remove_all_documents_from_case_file(case_file_id)
-        
+        removed_count = CaseFileService.remove_all_documents_from_case_file(
+            case_file_id
+        )
+
         return {"success": True, "removed_count": removed_count}
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            f"Error removing all documents from case file {case_file_id}: {e}", exc_info=True
+            f"Error removing all documents from case file {case_file_id}: {e}",
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -781,9 +811,7 @@ async def get_document_details(case_file_id: int, document_id: str):
 
 # Case File Notes Management Endpoints
 @app.post("/api/v1/case-files/{case_file_id}/notes", response_model=Dict[str, int])
-async def add_note_to_case_file(
-    case_file_id: int, request: AddCaseFileNoteRequest
-):
+async def add_note_to_case_file(case_file_id: int, request: AddCaseFileNoteRequest):
     """Add a note to a case file."""
     try:
         note_id = CaseFileNoteService.add_note(
@@ -806,7 +834,9 @@ async def add_note_to_case_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error adding note to case file {case_file_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error adding note to case file {case_file_id}: {e}", exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add note: {str(e)}",
@@ -967,7 +997,7 @@ async def update_draft(draft_id: int, request: UpdateDraftRequest):
         success = ArgumentDraftService.update_draft(
             draft_id=draft_id,
             drafted_argument=request.drafted_argument,
-            title=request.title
+            title=request.title,
         )
 
         if not success:
@@ -1013,7 +1043,7 @@ async def ai_edit_draft(request: EditDraftRequest):
             )
 
         # Extract user facts from case file
-        user_facts = case_file_data.get('user_facts', '')
+        user_facts = case_file_data.get("user_facts", "")
         if not user_facts or not user_facts.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1022,9 +1052,9 @@ async def ai_edit_draft(request: EditDraftRequest):
 
         # Build case file structure for the editing process
         case_file_for_graph = {
-            "documents": case_file_data.get('documents', []),
-            "total_documents": case_file_data.get('total_documents', 0),
-            "created_at": case_file_data.get('created_at'),
+            "documents": case_file_data.get("documents", []),
+            "total_documents": case_file_data.get("total_documents", 0),
+            "created_at": case_file_data.get("created_at"),
         }
 
         # Initialize the drafting graph state for editing
@@ -1111,8 +1141,7 @@ async def ai_edit_draft(request: EditDraftRequest):
 
             # Update the draft in the database
             ArgumentDraftService.update_draft_with_response(
-                draft_id=request.draft_id,
-                draft_response=response
+                draft_id=request.draft_id, draft_response=response
             )
 
             return response.model_dump()
@@ -1145,20 +1174,25 @@ async def ai_edit_draft(request: EditDraftRequest):
 
 
 # Moot Court Endpoints
-@app.post("/api/v1/moot-court/generate-counterarguments", response_model=GenerateCounterArgumentsResponse)
+@app.post(
+    "/api/v1/moot-court/generate-counterarguments",
+    response_model=GenerateCounterArgumentsResponse,
+)
 async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
     """
     Generate counterarguments for moot court practice using RAG-based analysis.
-    
+
     This endpoint uses a sophisticated RAG workflow that leverages the Neo4j knowledge graph
     to find opposing precedents, analyze argument vulnerabilities, and generate comprehensive
     counterarguments with supporting rebuttals.
     """
     start_time = time.time()
-    
+
     try:
-        logger.info(f"Starting RAG-based counterargument generation for case file ID: {request.case_file_id}")
-        
+        logger.info(
+            f"Starting RAG-based counterargument generation for case file ID: {request.case_file_id}"
+        )
+
         # Get the case file to retrieve context and documents
         case_file_data = CaseFileService.get_case_file(request.case_file_id)
         if not case_file_data:
@@ -1166,11 +1200,11 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Case file {request.case_file_id} not found",
             )
-        
+
         # Get the specific draft if provided
         draft_data = None
         key_arguments = []
-        
+
         if request.draft_id:
             draft_data = ArgumentDraftService.get_draft(request.draft_id)
             if not draft_data:
@@ -1178,37 +1212,39 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Draft {request.draft_id} not found",
                 )
-            
+
             # Extract key arguments from the draft's strategy
-            if draft_data.get("strategy") and draft_data["strategy"].get("key_arguments"):
+            if draft_data.get("strategy") and draft_data["strategy"].get(
+                "key_arguments"
+            ):
                 key_arguments = draft_data["strategy"]["key_arguments"]
-        
+
         if not key_arguments:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No key arguments found in the selected draft",
             )
-        
+
         # Extract user facts from case file for context
-        user_facts = case_file_data.get('user_facts', '')
+        user_facts = case_file_data.get("user_facts", "")
         if not user_facts:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Case file must contain case facts for counterargument generation",
             )
-        
+
         # Prepare case file documents for the graph
-        case_file_documents = case_file_data.get('documents', [])
-        
+        case_file_documents = case_file_data.get("documents", [])
+
         # Initialize the counterargument graph state
         initial_state: CounterArgumentState = {
             "case_file_id": request.case_file_id,
             "user_facts": user_facts,
-            "party_represented": case_file_data.get('party_represented'),
+            "party_represented": case_file_data.get("party_represented"),
             "key_arguments": key_arguments,
             "case_file_documents": case_file_documents,
         }
-        
+
         if request.draft_id:
             initial_state["draft_id"] = request.draft_id
 
@@ -1216,36 +1252,44 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
         async def process_counterargument_response(final_state):
             # Extract results from the final state
             counterarguments = final_state.get("generated_counterarguments", [])
-            
+
             # Handle both V1 and V2 rebuttal formats
-            rebuttals_v1 = final_state.get("counterargument_rebuttals", [])  # V1 format: [[reb1, reb2], [reb3]]
-            rebuttals_v2 = final_state.get("generated_rebuttals", [])        # V2 format: [reb1, reb2, reb3] with counterargument_index
-            
+            rebuttals_v1 = final_state.get(
+                "counterargument_rebuttals", []
+            )  # V1 format: [[reb1, reb2], [reb3]]
+            rebuttals_v2 = final_state.get(
+                "generated_rebuttals", []
+            )  # V2 format: [reb1, reb2, reb3] with counterargument_index
+
             # Convert to response format
             response_counterarguments = []
             for ca in counterarguments:
-                response_counterarguments.append(CounterArgument(
-                    title=ca.get("title", ""),
-                    argument=ca.get("argument", ""),
-                    supporting_authority=ca.get("supporting_authority", ""),
-                    factual_basis=ca.get("factual_basis", ""),
-                    strength_assessment=ca.get("strength_assessment")
-                ))
-            
+                response_counterarguments.append(
+                    CounterArgument(
+                        title=ca.get("title", ""),
+                        argument=ca.get("argument", ""),
+                        supporting_authority=ca.get("supporting_authority", ""),
+                        factual_basis=ca.get("factual_basis", ""),
+                        strength_assessment=ca.get("strength_assessment"),
+                    )
+                )
+
             response_rebuttals = []
-            
+
             # Handle V1 format (list of lists)
             if rebuttals_v1:
                 for rebuttal_group in rebuttals_v1:
                     group = []
                     for reb in rebuttal_group:
-                        group.append(CounterArgumentRebuttal(
-                            title=reb.get("title", ""),
-                            content=reb.get("content", ""),
-                            authority=reb.get("authority", "")
-                        ))
+                        group.append(
+                            CounterArgumentRebuttal(
+                                title=reb.get("title", ""),
+                                content=reb.get("content", ""),
+                                authority=reb.get("authority", ""),
+                            )
+                        )
                     response_rebuttals.append(group)
-            
+
             # Handle V2 format (flat list with counterargument_index)
             elif rebuttals_v2:
                 # Group rebuttals by counterargument_index
@@ -1254,62 +1298,70 @@ async def generate_counterarguments(request: GenerateCounterArgumentsRequest):
                     ca_index = reb.get("counterargument_index", 0)
                     if ca_index not in rebuttal_groups:
                         rebuttal_groups[ca_index] = []
-                    
+
                     # Map V2 fields to V1 format
-                    rebuttal_groups[ca_index].append(CounterArgumentRebuttal(
-                        title=reb.get("strategy", ""),  # V2 uses "strategy" field
-                        content=reb.get("content", ""),
-                        authority=reb.get("authority", "")
-                    ))
-                
+                    rebuttal_groups[ca_index].append(
+                        CounterArgumentRebuttal(
+                            title=reb.get("strategy", ""),  # V2 uses "strategy" field
+                            content=reb.get("content", ""),
+                            authority=reb.get("authority", ""),
+                        )
+                    )
+
                 # Convert to ordered list (ensure we have rebuttals for each counterargument)
                 for i in range(len(counterarguments)):
                     if i in rebuttal_groups:
                         response_rebuttals.append(rebuttal_groups[i])
                     else:
-                        response_rebuttals.append([])  # Empty list if no rebuttals for this counterargument
-            
+                        response_rebuttals.append(
+                            []
+                        )  # Empty list if no rebuttals for this counterargument
+
             execution_time = time.time() - start_time
-            
+
             response = GenerateCounterArgumentsResponse(
                 counterarguments=response_counterarguments,
                 rebuttals=response_rebuttals,
-                execution_time=execution_time
+                execution_time=execution_time,
             )
-            
+
             # Log RAG retrieval statistics
-            research_comprehensiveness = final_state.get("research_comprehensiveness", 0.0)
+            research_comprehensiveness = final_state.get(
+                "research_comprehensiveness", 0.0
+            )
             counterargument_strength = final_state.get("counterargument_strength", 0.0)
             rebuttal_quality = final_state.get("rebuttal_quality", 0.0)
-            
+
             logger.info(
                 f"RAG counterargument generation completed in {execution_time:.2f}s. "
                 f"Research comprehensiveness: {research_comprehensiveness:.2f}, "
                 f"Counterargument strength: {counterargument_strength:.2f}, "
                 f"Rebuttal quality: {rebuttal_quality:.2f}"
             )
-            
+
             return response.model_dump()
-        
+
         # Handle streaming vs non-streaming execution
         if request.stream:
             logger.info("Starting streaming counterargument generation execution")
             return create_streaming_response(
                 stream_graph_with_final_response(
-                    counterargument_graph, initial_state, process_counterargument_response
+                    counterargument_graph,
+                    initial_state,
+                    process_counterargument_response,
                 )
             )
-        
+
         # Execute the counterargument graph workflow
         logger.info("Executing RAG-based counterargument generation workflow")
         final_state = await counterargument_graph.ainvoke(initial_state)
-        
+
         # Use the same processing logic
         response_dict = await process_counterargument_response(final_state)
         response = GenerateCounterArgumentsResponse(**response_dict)
-        
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Error in RAG counterargument generation: {e}", exc_info=True)
         raise HTTPException(
@@ -1324,8 +1376,10 @@ async def save_moot_court_session(request: SaveMootCourtSessionRequest):
     try:
         # Convert Pydantic models to dict format for storage
         counterarguments_data = [ca.model_dump() for ca in request.counterarguments]
-        rebuttals_data = [[reb.model_dump() for reb in group] for group in request.rebuttals]
-        
+        rebuttals_data = [
+            [reb.model_dump() for reb in group] for group in request.rebuttals
+        ]
+
         session_id = MootCourtSessionService.save_session(
             case_file_id=request.case_file_id,
             draft_id=request.draft_id,
@@ -1363,7 +1417,8 @@ async def list_moot_court_sessions_for_case_file(case_file_id: int):
 
     except Exception as e:
         logger.error(
-            f"Error listing moot court sessions for case file {case_file_id}: {e}", exc_info=True
+            f"Error listing moot court sessions for case file {case_file_id}: {e}",
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1371,7 +1426,9 @@ async def list_moot_court_sessions_for_case_file(case_file_id: int):
         )
 
 
-@app.get("/api/v1/moot-court-sessions/{session_id}", response_model=SavedMootCourtSession)
+@app.get(
+    "/api/v1/moot-court-sessions/{session_id}", response_model=SavedMootCourtSession
+)
 async def get_moot_court_session(session_id: int):
     """Get a specific moot court session."""
     try:
@@ -1385,7 +1442,10 @@ async def get_moot_court_session(session_id: int):
 
         # Convert stored data back to Pydantic models
         counterarguments = [CounterArgument(**ca) for ca in session["counterarguments"]]
-        rebuttals = [[CounterArgumentRebuttal(**reb) for reb in group] for group in session["rebuttals"]]
+        rebuttals = [
+            [CounterArgumentRebuttal(**reb) for reb in group]
+            for group in session["rebuttals"]
+        ]
 
         return SavedMootCourtSession(
             id=session["id"],
@@ -1406,7 +1466,9 @@ async def get_moot_court_session(session_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting moot court session {session_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error getting moot court session {session_id}: {e}", exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get moot court session: {str(e)}",
@@ -1430,7 +1492,9 @@ async def delete_moot_court_session(session_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting moot court session {session_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error deleting moot court session {session_id}: {e}", exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete moot court session: {str(e)}",
@@ -1461,7 +1525,9 @@ async def update_moot_court_session_title(session_id: int, request: Dict[str, st
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating moot court session title {session_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error updating moot court session title {session_id}: {e}", exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update moot court session title: {str(e)}",
@@ -1521,10 +1587,17 @@ async def get_citation_network(case_citation: str, direction: str = "both"):
 
 
 # Streaming helper function
-async def stream_graph_with_final_response(graph, initial_state, response_processor, chunk_processor=None, stream_mode=["values", "custom"], config=None):
+async def stream_graph_with_final_response(
+    graph,
+    initial_state,
+    response_processor,
+    chunk_processor=None,
+    stream_mode=["values", "custom"],
+    config=None,
+):
     """
     Stream the execution of a LangGraph and send a final processed response.
-    
+
     Args:
         graph: The LangGraph to execute
         initial_state: Initial state for the graph
@@ -1538,6 +1611,7 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
         config = {}
 
     if chunk_processor is None:
+
         async def chunk_processor(chunk, stream_mode):
             def process_chunk(chunk_dict):
                 processed_chunk = {}
@@ -1549,21 +1623,21 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
                     else:
                         processed_chunk[key] = value
                 return processed_chunk
+
             processed_chunk = {}
             stream_type = stream_mode
             if isinstance(chunk, tuple):
                 stream_type, chunk = chunk
             processed_chunk = process_chunk(chunk)
             if stream_type:
-                processed_chunk = {
-                    "stream_type": stream_type,
-                    "data": processed_chunk
-                }
+                processed_chunk = {"stream_type": stream_type, "data": processed_chunk}
             return processed_chunk
-            
+
     # Stream the graph execution
     try:
-        async for chunk in graph.astream(initial_state, config, stream_mode=stream_mode):
+        async for chunk in graph.astream(
+            initial_state, config, stream_mode=stream_mode
+        ):
             yield f"data: {json.dumps(await chunk_processor(chunk, stream_mode), default=str)}\n\n"
             # Keep track of the final state
             if isinstance(chunk, tuple):
@@ -1572,23 +1646,21 @@ async def stream_graph_with_final_response(graph, initial_state, response_proces
                 final_state = chunk
     except GraphRecursionError as e:
         pass
-    
+
     # Process the final response
     if final_state and response_processor:
         try:
             processed_response = await response_processor(final_state)
             final_chunk = {
                 "streaming_complete": True,
-                "final_response": processed_response
+                "final_response": processed_response,
             }
             yield f"data: {json.dumps(final_chunk, default=str)}\n\n"
         except Exception as e:
             raise
-            error_chunk = {
-                "streaming_complete": True,
-                "error": str(e)
-            }
+            error_chunk = {"streaming_complete": True, "error": str(e)}
             yield f"data: {json.dumps(error_chunk, default=str)}\n\n"
+
 
 def create_streaming_response(generator):
     """Create a streaming response from an async generator."""
@@ -1598,8 +1670,8 @@ def create_streaming_response(generator):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Content-Type": "text/event-stream"
-        }
+            "Content-Type": "text/event-stream",
+        },
     )
 
 

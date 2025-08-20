@@ -2,7 +2,7 @@
 Drafting Graph v2 - Decomposed Legal Argument Generation
 
 This module implements an improved drafting workflow with decomposed nodes
-for better LLM performance and reliability. The overloaded strategist_node 
+for better LLM performance and reliability. The overloaded strategist_node
 has been broken down into focused, single-responsibility nodes.
 """
 
@@ -24,12 +24,12 @@ from app.core.config import settings
 from app.core.llm import create_llm
 from ..llm_helper import create_graph_llm_helper
 from .state import (
-    DraftingState, 
-    LegalIssueAnalysis, 
-    CoreStrategy, 
+    DraftingState,
+    LegalIssueAnalysis,
+    CoreStrategy,
     SingleArgument,
     SimpleAssessment,
-    ContentRevision
+    ContentRevision,
 )
 from ...tools.neo4j_tools import (
     find_similar_fact_patterns,
@@ -50,6 +50,7 @@ llm_helper = create_graph_llm_helper("drafting_graph")
 # Simplified Pydantic models for structured output
 class LegalIssueAnalysisOutput(BaseModel):
     """Simple legal issue identification."""
+
     primary_issue: str = Field(description="Main legal issue")
     secondary_issues: List[str] = Field(description="Supporting issues (up to 3)")
     applicable_law: str = Field(description="Relevant legal framework")
@@ -57,6 +58,7 @@ class LegalIssueAnalysisOutput(BaseModel):
 
 class CoreStrategyOutput(BaseModel):
     """Simple core legal strategy."""
+
     main_thesis: str = Field(description="Primary argument thesis")
     legal_theory: str = Field(description="Core legal theory to apply")
     strength_rating: float = Field(description="Strategy strength 0-1", ge=0.0, le=1.0)
@@ -64,6 +66,7 @@ class CoreStrategyOutput(BaseModel):
 
 class SingleArgumentOutput(BaseModel):
     """Single argument structure."""
+
     argument: str = Field(description="Specific legal argument")
     authority: str = Field(description="Supporting case/statute")
     reasoning: str = Field(description="How facts support argument")
@@ -71,6 +74,7 @@ class SingleArgumentOutput(BaseModel):
 
 class MultipleArgumentsOutput(BaseModel):
     """Multiple arguments structure."""
+
     arguments: List[SingleArgumentOutput] = Field(
         description="List of 2-4 legal arguments supporting the strategy"
     )
@@ -78,6 +82,7 @@ class MultipleArgumentsOutput(BaseModel):
 
 class SimpleAssessmentOutput(BaseModel):
     """Simple assessment output."""
+
     approved: bool = Field(description="Whether approved")
     score: float = Field(description="Score 0-1", ge=0.0, le=1.0)
     feedback: str = Field(description="Brief feedback")
@@ -85,6 +90,7 @@ class SimpleAssessmentOutput(BaseModel):
 
 class ContentRevisionOutput(BaseModel):
     """Simple content revision."""
+
     revised_content: str = Field(description="Revised content")
     changes_made: str = Field(description="Summary of changes")
     improvement_reasoning: str = Field(description="Why changes improve content")
@@ -94,44 +100,52 @@ class ContentRevisionOutput(BaseModel):
 async def fact_analyzer_node(state: DraftingState) -> DraftingState:
     """
     Node that analyzes the facts and identifies legal issues.
-    
+
     This is the first node in the pipeline and sets up the foundation
-    for the legal argument by analyzing the factual context and 
+    for the legal argument by analyzing the factual context and
     identifying key legal issues.
     """
     step_id = f"fact_analyzer_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Analyzing facts and legal issues",
-        "description": "Analyzing the factual context to identify key legal issues."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Analyzing facts and legal issues",
+            "description": "Analyzing the factual context to identify key legal issues.",
+        }
+    )
     logger.info("Executing FactAnalyzerNode")
-    
+
     # Get node-specific LLM
     llm = llm_helper.get_node_llm("fact_analyzer_node")
-    
+
     user_facts = state["user_facts"]
     case_file = state.get("case_file", {})
     case_file_notes = case_file.get("notes", [])
     party_represented = state.get("party_represented", "")
-    
+
     structured_llm = llm.with_structured_output(LegalIssueAnalysisOutput)
-    
+
     notes_context = ""
     if case_file_notes:
         notes_context = f"\n\nCase File Notes Available:\n"
         for note in case_file_notes:
-            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
-            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
-            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            note_type = (
+                f"[{note.get('note_type', 'general')}]" if note.get("note_type") else ""
+            )
+            author_info = (
+                f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            )
+            notes_context += (
+                f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            )
         notes_context += "\nConsider these insights when identifying legal issues."
-    
+
     party_context = ""
     if party_represented:
         party_context = f"\n\nParty Represented: {party_represented}. Consider what legal issues favor this party's position."
-    
+
     system_prompt = f"""You are a legal issue analysis specialist. Your ONLY job is to analyze facts and identify legal issues.
 
 Based on the facts provided, identify:
@@ -142,69 +156,81 @@ Based on the facts provided, identify:
 Focus on actionable legal issues that can form the basis of legal arguments.
 {party_context}
 {notes_context}"""
-    
+
     prompt_content = f"Facts to analyze: {user_facts}"
     if case_file.get("documents"):
         prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file.get('documents', []), indent=2, default=str)}"
-    
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"{prompt_content}\n\nAnalyze these facts and identify the key legal issues.")
-    ])
-    
+
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"{prompt_content}\n\nAnalyze these facts and identify the key legal issues."
+            ),
+        ]
+    )
+
     try:
-        analysis_output = await structured_llm.ainvoke(prompt_template.format_messages())
-        
+        analysis_output = await structured_llm.ainvoke(
+            prompt_template.format_messages()
+        )
+
         # Store in state
         state["legal_issue_analysis"] = {
             "primary_issue": analysis_output.primary_issue,
             "secondary_issues": analysis_output.secondary_issues,
-            "applicable_law": analysis_output.applicable_law
+            "applicable_law": analysis_output.applicable_law,
         }
-        
+
         logger.info(f"Legal issue analysis completed: {analysis_output.primary_issue}")
-        
+
         # Stream completion update
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Fact analysis complete",
-            "description": f"Identified primary issue: {analysis_output.primary_issue[:100]}{'...' if len(analysis_output.primary_issue) > 100 else ''}"
-        })
-        
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Fact analysis complete",
+                "description": f"Identified primary issue: {analysis_output.primary_issue[:100]}{'...' if len(analysis_output.primary_issue) > 100 else ''}",
+            }
+        )
+
     except Exception as e:
         logger.error(f"Error in fact analysis: {e}")
         # Fallback analysis
         state["legal_issue_analysis"] = {
             "primary_issue": "Legal dispute requiring analysis",
             "secondary_issues": ["Factual application", "Legal standards"],
-            "applicable_law": "Relevant jurisdiction law"
+            "applicable_law": "Relevant jurisdiction law",
         }
-        
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Fact analysis complete (fallback)",
-            "description": "Completed fact analysis using fallback due to error"
-        })
-    
+
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Fact analysis complete (fallback)",
+                "description": "Completed fact analysis using fallback due to error",
+            }
+        )
+
     return state
 
 
 async def strategy_developer_node(state: DraftingState) -> DraftingState:
     """
     Develop core legal strategy based on issue analysis.
-    
+
     This focused node only develops strategy - no argument building.
     """
     step_id = f"strategy_developer_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Developing core strategy",
-        "description": "Developing the core legal strategy and approach based on identified issues."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Developing core strategy",
+            "description": "Developing the core legal strategy and approach based on identified issues.",
+        }
+    )
     logger.info("Executing StrategyDeveloperNode")
 
     # Get node-specific LLM
@@ -218,7 +244,9 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
 
     # Check if this is a revision
     strategy_assessment = state.get("strategy_assessment", {})
-    is_revision = not strategy_assessment.get("approved", True) if strategy_assessment else False
+    is_revision = (
+        not strategy_assessment.get("approved", True) if strategy_assessment else False
+    )
 
     # Create structured LLM for strategy development
     structured_llm = llm.with_structured_output(CoreStrategyOutput)
@@ -235,9 +263,15 @@ async def strategy_developer_node(state: DraftingState) -> DraftingState:
     if case_file_notes:
         notes_context = f"\n\nCase File Notes Available:\n"
         for note in case_file_notes:
-            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
-            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
-            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            note_type = (
+                f"[{note.get('note_type', 'general')}]" if note.get("note_type") else ""
+            )
+            author_info = (
+                f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            )
+            notes_context += (
+                f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            )
         notes_context += "\nConsider these insights when developing your strategy."
 
     system_prompt = f"""You are a legal strategy specialist. Your ONLY job is to develop the core strategic approach.
@@ -247,8 +281,8 @@ Based on the legal issue analysis, develop:
 2. The core legal theory to apply
 3. An honest strength assessment (0-1)
 
-Primary issue: {legal_issue_analysis.get('primary_issue', 'Unknown')}
-Applicable law: {legal_issue_analysis.get('applicable_law', 'Unknown')}
+Primary issue: {legal_issue_analysis.get("primary_issue", "Unknown")}
+Applicable law: {legal_issue_analysis.get("applicable_law", "Unknown")}
 {party_context}
 {notes_context}
 {revision_context}
@@ -258,33 +292,43 @@ Focus on the big picture strategy, not specific arguments."""
     prompt_content = f"Facts: {user_facts}"
     if party_represented:
         prompt_content += f"\n\nParty Represented: {party_represented}"
-    prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+    prompt_content += (
+        f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+    )
 
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"{prompt_content}\n\nDevelop a core legal strategy for this case.")
-    ])
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"{prompt_content}\n\nDevelop a core legal strategy for this case."
+            ),
+        ]
+    )
 
     try:
-        strategy_output = await structured_llm.ainvoke(prompt_template.format_messages())
-        
+        strategy_output = await structured_llm.ainvoke(
+            prompt_template.format_messages()
+        )
+
         # Store in state
         state["core_strategy"] = {
             "main_thesis": strategy_output.main_thesis,
             "legal_theory": strategy_output.legal_theory,
-            "strength_rating": strategy_output.strength_rating
+            "strength_rating": strategy_output.strength_rating,
         }
-        
+
         logger.info(f"Core strategy developed: {strategy_output.main_thesis}")
-        
+
         # Stream completion update
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Strategy developed",
-            "description": f"Core strategy: {strategy_output.main_thesis[:100]}{'...' if len(strategy_output.main_thesis) > 100 else ''}"
-        })
-        
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Strategy developed",
+                "description": f"Core strategy: {strategy_output.main_thesis[:100]}{'...' if len(strategy_output.main_thesis) > 100 else ''}",
+            }
+        )
+
     except Exception as e:
         logger.error(f"Error in strategy development: {e}")
         # Fallback strategy
@@ -293,7 +337,7 @@ Focus on the big picture strategy, not specific arguments."""
         state["core_strategy"] = {
             "main_thesis": f"Client should prevail on {primary_issue}{party_text}",
             "legal_theory": "Applicable legal standards support client's position",
-            "strength_rating": 0.6
+            "strength_rating": 0.6,
         }
 
     return state
@@ -302,17 +346,19 @@ Focus on the big picture strategy, not specific arguments."""
 async def argument_builder_node(state: DraftingState) -> DraftingState:
     """
     Build specific arguments all at once.
-    
+
     This node generates all arguments (2-4) in one shot and lets the LLM decide how many to create.
     """
     step_id = f"argument_builder_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Building legal arguments",
-        "description": "Building specific legal arguments that support the core strategy."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Building legal arguments",
+            "description": "Building specific legal arguments that support the core strategy.",
+        }
+    )
     logger.info("Executing ArgumentBuilderNode")
 
     # Get node-specific LLM
@@ -336,15 +382,21 @@ async def argument_builder_node(state: DraftingState) -> DraftingState:
     if case_file_notes:
         notes_context = f"\n\nCase File Notes Available:\n"
         for note in case_file_notes:
-            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
-            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
-            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            note_type = (
+                f"[{note.get('note_type', 'general')}]" if note.get("note_type") else ""
+            )
+            author_info = (
+                f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            )
+            notes_context += (
+                f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            )
         notes_context += "\nLeverage these insights when building your arguments."
 
     system_prompt = f"""You are a legal argument specialist. Your job is to create multiple specific legal arguments (between 2-4) that support the strategy.
 
-Core strategy: {core_strategy.get('main_thesis', '')}
-Legal theory: {core_strategy.get('legal_theory', '')}
+Core strategy: {core_strategy.get("main_thesis", "")}
+Legal theory: {core_strategy.get("legal_theory", "")}
 {party_context}
 {notes_context}
 
@@ -358,75 +410,93 @@ Ensure the arguments complement each other and provide comprehensive support for
     prompt_content = f"Facts: {user_facts}"
     if party_represented:
         prompt_content += f"\n\nParty Represented: {party_represented}"
-    prompt_content += f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+    prompt_content += (
+        f"\n\nAvailable precedents: {json.dumps(case_file, indent=2, default=str)}"
+    )
 
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"{prompt_content}\n\nCreate multiple legal arguments that support the strategy.")
-    ])
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"{prompt_content}\n\nCreate multiple legal arguments that support the strategy."
+            ),
+        ]
+    )
 
     try:
-        arguments_output = await structured_llm.ainvoke(prompt_template.format_messages())
-        
+        arguments_output = await structured_llm.ainvoke(
+            prompt_template.format_messages()
+        )
+
         # Convert to expected format
         arguments = []
         for arg_output in arguments_output.arguments:
-            arguments.append({
-                "argument": arg_output.argument,
-                "authority": arg_output.authority,
-                "reasoning": arg_output.reasoning
-            })
-        
+            arguments.append(
+                {
+                    "argument": arg_output.argument,
+                    "authority": arg_output.authority,
+                    "reasoning": arg_output.reasoning,
+                }
+            )
+
         # Store arguments in state
         state["arguments"] = arguments
         logger.info(f"Generated {len(arguments)} legal arguments in one shot")
-        
+
         # Stream completion update
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Arguments built",
-            "description": f"Built {len(arguments)} supporting arguments for the legal strategy"
-        })
-        
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Arguments built",
+                "description": f"Built {len(arguments)} supporting arguments for the legal strategy",
+            }
+        )
+
     except Exception as e:
         logger.error(f"Error generating arguments: {e}")
         # Fallback - generate 3 basic arguments
         party_text = f" for the {party_represented}" if party_represented else ""
         arguments = []
         for i in range(3):
-            arguments.append({
-                "argument": f"Legal principle {i+1} supports client's position{party_text}",
-                "authority": "Applicable case law",
-                "reasoning": "Facts demonstrate this principle applies"
-            })
+            arguments.append(
+                {
+                    "argument": f"Legal principle {i + 1} supports client's position{party_text}",
+                    "authority": "Applicable case law",
+                    "reasoning": "Facts demonstrate this principle applies",
+                }
+            )
         state["arguments"] = arguments
-        
+
         # Still update the stream with fallback
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Arguments built (fallback)",
-            "description": f"Built {len(arguments)} supporting arguments (using fallback due to error)"
-        })
-    
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Arguments built (fallback)",
+                "description": f"Built {len(arguments)} supporting arguments (using fallback due to error)",
+            }
+        )
+
     return state
 
 
 async def simple_critic_node(state: DraftingState) -> DraftingState:
     """
     Perform simple assessment of strategy and arguments.
-    
+
     This focused node only does assessment - no complex decision logic.
     """
     step_id = f"simple_critic_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Assessing strategy quality",
-        "description": "Performing quality assessment of the legal strategy and arguments."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Assessing strategy quality",
+            "description": "Performing quality assessment of the legal strategy and arguments.",
+        }
+    )
     logger.info("Executing SimpleCriticNode")
 
     # Get node-specific LLM
@@ -449,46 +519,56 @@ Evaluate:
 Be practical - approve strategies that are workable, not perfect.
 Only reject if there are serious flaws that would likely cause failure."""
 
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"""
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"""
 Strategy: {json.dumps(core_strategy, indent=2)}
 
 Arguments: {json.dumps(arguments, indent=2)}
 
 Legal issues: {json.dumps(legal_issue_analysis, indent=2)}
 
-Assess the quality of this legal strategy and arguments.""")
-    ])
+Assess the quality of this legal strategy and arguments."""
+            ),
+        ]
+    )
 
     try:
-        assessment_output = await structured_llm.ainvoke(prompt_template.format_messages())
-        
+        assessment_output = await structured_llm.ainvoke(
+            prompt_template.format_messages()
+        )
+
         # Store assessment
         state["strategy_assessment"] = {
             "approved": assessment_output.approved,
             "score": assessment_output.score,
-            "feedback": assessment_output.feedback
+            "feedback": assessment_output.feedback,
         }
-        
-        logger.info(f"Strategy assessment: approved={assessment_output.approved}, score={assessment_output.score:.2f}")
-        
+
+        logger.info(
+            f"Strategy assessment: approved={assessment_output.approved}, score={assessment_output.score:.2f}"
+        )
+
         # Stream completion update
         approval_status = "approved" if assessment_output.approved else "needs revision"
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Quality assessed",
-            "description": f"Strategy assessment complete: {approval_status}"
-        })
-        
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Quality assessed",
+                "description": f"Strategy assessment complete: {approval_status}",
+            }
+        )
+
     except Exception as e:
         logger.error(f"Error in strategy assessment: {e}")
         # Fallback assessment - be lenient
         state["strategy_assessment"] = {
             "approved": True,
             "score": 0.6,
-            "feedback": "Assessment error, proceeding with strategy"
+            "feedback": "Assessment error, proceeding with strategy",
         }
 
     return state
@@ -500,15 +580,18 @@ def strategy_approval_check(state: DraftingState) -> str:
     """
     strategy_assessment = state.get("strategy_assessment", {})
     revision_count = state.get("revision_count", 0)
-    
+
     # Maximum revisions to prevent loops
     MAX_REVISIONS = 2
-    
+
     if revision_count >= MAX_REVISIONS:
         logger.info("Maximum revisions reached, proceeding to drafting")
         return "final_drafter"
-    
-    if strategy_assessment.get("approved", False) or strategy_assessment.get("score", 0) >= 0.6:
+
+    if (
+        strategy_assessment.get("approved", False)
+        or strategy_assessment.get("score", 0) >= 0.6
+    ):
         logger.info("Strategy approved, proceeding to drafting")
         return "final_drafter"
     else:
@@ -519,17 +602,19 @@ def strategy_approval_check(state: DraftingState) -> str:
 async def argument_improver_node(state: DraftingState) -> DraftingState:
     """
     Improve arguments based on assessment feedback.
-    
+
     This focused node only improves arguments.
     """
     step_id = f"argument_improver_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Improving arguments",
-        "description": "Improving legal arguments based on quality assessment feedback."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Improving arguments",
+            "description": "Improving legal arguments based on quality assessment feedback.",
+        }
+    )
     logger.info("Executing ArgumentImproverNode")
 
     # Get node-specific LLM
@@ -555,60 +640,72 @@ async def argument_improver_node(state: DraftingState) -> DraftingState:
 
 Assessment feedback: {feedback}
 
-Original argument: {arg.get('argument', '')}
-Original authority: {arg.get('authority', '')}
-Original reasoning: {arg.get('reasoning', '')}
+Original argument: {arg.get("argument", "")}
+Original authority: {arg.get("authority", "")}
+Original reasoning: {arg.get("reasoning", "")}
 
 Improve this specific argument to address the feedback while maintaining its core point."""
 
-        prompt_template = ChatPromptTemplate.from_messages([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Improve argument #{i+1} based on the feedback.")
-        ])
+        prompt_template = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(
+                    content=f"Improve argument #{i + 1} based on the feedback."
+                ),
+            ]
+        )
 
         try:
-            improved_output = await structured_llm.ainvoke(prompt_template.format_messages())
-            
-            improved_arguments.append({
-                "argument": improved_output.argument,
-                "authority": improved_output.authority,
-                "reasoning": improved_output.reasoning
-            })
-            
+            improved_output = await structured_llm.ainvoke(
+                prompt_template.format_messages()
+            )
+
+            improved_arguments.append(
+                {
+                    "argument": improved_output.argument,
+                    "authority": improved_output.authority,
+                    "reasoning": improved_output.reasoning,
+                }
+            )
+
         except Exception as e:
-            logger.error(f"Error improving argument {i+1}: {e}")
+            logger.error(f"Error improving argument {i + 1}: {e}")
             # Keep original if improvement fails
             improved_arguments.append(arg)
 
     # Update arguments
     state["arguments"] = improved_arguments
     logger.info(f"Improved {len(improved_arguments)} arguments")
-    
+
     # Stream completion update
-    writer({
-        "step_id": step_id,
-        "status": "complete",
-        "brief_description": "Arguments improved",
-        "description": f"Improved {len(improved_arguments)} arguments based on assessment feedback"
-    })
-    
+    writer(
+        {
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Arguments improved",
+            "description": f"Improved {len(improved_arguments)} arguments based on assessment feedback",
+        }
+    )
+
     return state
 
 
 async def final_drafter_node(state: DraftingState) -> DraftingState:
     """
     Draft the final legal argument using approved strategy and arguments.
-    
+
     This focused node only does final drafting.
     """
     step_id = f"final_drafter_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Drafting final argument",
-        "description": "Drafting the final comprehensive legal argument using the approved strategy."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Drafting final argument",
+            "description": "Drafting the final comprehensive legal argument using the approved strategy.",
+        }
+    )
     logger.info("Executing FinalDrafterNode")
 
     # Get node-specific LLM
@@ -625,10 +722,18 @@ async def final_drafter_node(state: DraftingState) -> DraftingState:
     if case_file_notes:
         notes_context = f"\n\nCase File Notes:\n"
         for note in case_file_notes:
-            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
-            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
-            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
-        notes_context += "\nIncorporate relevant insights from these notes into your final argument."
+            note_type = (
+                f"[{note.get('note_type', 'general')}]" if note.get("note_type") else ""
+            )
+            author_info = (
+                f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            )
+            notes_context += (
+                f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            )
+        notes_context += (
+            "\nIncorporate relevant insights from these notes into your final argument."
+        )
 
     system_prompt = f"""You are a legal writing specialist. Your ONLY job is to draft a comprehensive legal argument.
 
@@ -641,9 +746,11 @@ Structure the argument with:
 Use professional legal writing style with proper reasoning and citations.
 {notes_context}"""
 
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"""
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"""
 Strategy: {json.dumps(core_strategy, indent=2)}
 
 Arguments: {json.dumps(arguments, indent=2)}
@@ -656,13 +763,15 @@ Available Precedents: {json.dumps(case_file, indent=2, default=str)}
 
 Case File Notes: {json.dumps(case_file_notes, indent=2, default=str)}
 
-Draft a comprehensive legal argument that implements this strategy.""")
-    ])
+Draft a comprehensive legal argument that implements this strategy."""
+            ),
+        ]
+    )
 
     try:
         response = await llm.ainvoke(prompt_template.format_messages())
         drafted_argument = response.content
-        
+
         if isinstance(drafted_argument, list):
             drafted_argument = drafted_argument[0]["text"]
 
@@ -675,20 +784,24 @@ Draft a comprehensive legal argument that implements this strategy.""")
         # Create argument structure
         argument_structure = {
             "introduction": legal_issue_analysis.get("primary_issue", "Legal issue"),
-            "legal_framework": legal_issue_analysis.get("applicable_law", "Applicable law"),
+            "legal_framework": legal_issue_analysis.get(
+                "applicable_law", "Applicable law"
+            ),
             "analysis": "Application of law to facts",
-            "conclusion": core_strategy.get("main_thesis", "Client's position")
+            "conclusion": core_strategy.get("main_thesis", "Client's position"),
         }
 
         # Create strategy object for frontend compatibility
         # Convert v2 arguments format to v1 key_arguments format expected by frontend
         key_arguments = []
         for arg in arguments:
-            key_arguments.append({
-                "argument": arg.get("argument", ""),
-                "supporting_authority": arg.get("authority", ""),
-                "factual_basis": arg.get("reasoning", "")
-            })
+            key_arguments.append(
+                {
+                    "argument": arg.get("argument", ""),
+                    "supporting_authority": arg.get("authority", ""),
+                    "factual_basis": arg.get("reasoning", ""),
+                }
+            )
 
         # Build strategy object matching v1 format for frontend compatibility
         strategy = {
@@ -699,12 +812,16 @@ Draft a comprehensive legal argument that implements this strategy.""")
             "key_arguments": key_arguments,
             "anticipated_counterarguments": [],  # Not implemented in v2 yet
             "strength_assessment": core_strategy.get("strength_rating", 0.7),
-            "risk_factors": []  # Not implemented in v2 yet
+            "risk_factors": [],  # Not implemented in v2 yet
         }
 
         # Calculate quality metrics for frontend compatibility
         argument_strength = core_strategy.get("strength_rating", 0.7)
-        precedent_coverage = min(len(citations_used) / max(len(case_file.get("documents", [])), 1), 1.0) if case_file.get("documents") else 0.7
+        precedent_coverage = (
+            min(len(citations_used) / max(len(case_file.get("documents", [])), 1), 1.0)
+            if case_file.get("documents")
+            else 0.7
+        )
         logical_coherence = state.get("strategy_assessment", {}).get("score", 0.7)
 
         # Update state with all required fields
@@ -718,16 +835,18 @@ Draft a comprehensive legal argument that implements this strategy.""")
         state["workflow_stage"] = "completed"
 
         logger.info(f"Final argument drafted: {len(drafted_argument.split())} words")
-        
+
         # Stream completion update
         word_count = len(drafted_argument.split())
         citation_count = len(citations_used)
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Final argument drafted",
-            "description": f"Completed comprehensive legal argument ({word_count} words, {citation_count} citations)"
-        })
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Final argument drafted",
+                "description": f"Completed comprehensive legal argument ({word_count} words, {citation_count} citations)",
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error in final drafting: {e}")
@@ -743,17 +862,19 @@ Draft a comprehensive legal argument that implements this strategy.""")
 async def edit_analyzer_node(state: DraftingState) -> DraftingState:
     """
     Analyze editing requirements for existing drafts.
-    
+
     This focused node only analyzes what needs to be edited.
     """
     step_id = f"edit_analyzer_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Analyzing edit requirements",
-        "description": "Analyzing the existing draft and edit instructions to understand required changes."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Analyzing edit requirements",
+            "description": "Analyzing the existing draft and edit instructions to understand required changes.",
+        }
+    )
     logger.info("Executing EditAnalyzerNode")
 
     existing_draft = state.get("existing_draft", "")
@@ -763,37 +884,41 @@ async def edit_analyzer_node(state: DraftingState) -> DraftingState:
     state["edit_analysis"] = {
         "original_length": len(existing_draft.split()),
         "edit_type": "content_revision",
-        "instructions": edit_instructions
+        "instructions": edit_instructions,
     }
 
     logger.info("Edit analysis completed")
-    
+
     # Stream completion update
     word_count = len(existing_draft.split())
-    writer({
-        "step_id": step_id,
-        "status": "complete",
-        "brief_description": "Edit analysis complete",
-        "description": f"Analyzed draft ({word_count} words) and edit requirements"
-    })
-    
+    writer(
+        {
+            "step_id": step_id,
+            "status": "complete",
+            "brief_description": "Edit analysis complete",
+            "description": f"Analyzed draft ({word_count} words) and edit requirements",
+        }
+    )
+
     return state
 
 
 async def content_reviser_node(state: DraftingState) -> DraftingState:
     """
     Revise content based on edit instructions.
-    
+
     This focused node only revises content.
     """
     step_id = f"content_reviser_{uuid.uuid4().hex[:8]}"
     writer = get_stream_writer()
-    writer({
-        "step_id": step_id,
-        "status": "in_progress",
-        "brief_description": "Revising content",
-        "description": "Revising the legal argument content based on edit instructions."
-    })
+    writer(
+        {
+            "step_id": step_id,
+            "status": "in_progress",
+            "brief_description": "Revising content",
+            "description": "Revising the legal argument content based on edit instructions.",
+        }
+    )
     logger.info("Executing ContentReviserNode")
 
     # Get node-specific LLM
@@ -811,9 +936,15 @@ async def content_reviser_node(state: DraftingState) -> DraftingState:
     if case_file_notes:
         notes_context = f"\n\nCase File Notes:\n"
         for note in case_file_notes:
-            note_type = f"[{note.get('note_type', 'general')}]" if note.get('note_type') else ""
-            author_info = f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
-            notes_context += f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            note_type = (
+                f"[{note.get('note_type', 'general')}]" if note.get("note_type") else ""
+            )
+            author_info = (
+                f"by {note.get('author_name', note.get('author_type', 'unknown'))}"
+            )
+            notes_context += (
+                f"- {note_type} {note.get('content', '')} ({author_info})\n"
+            )
         notes_context += "\nConsider these insights when making revisions."
 
     system_prompt = f"""You are a legal content revision specialist. Your ONLY job is to revise content based on instructions.
@@ -825,42 +956,52 @@ Make the requested changes while:
 4. Following proper legal writing conventions
 {notes_context}"""
 
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=f"""
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"""
 Original draft: {existing_draft}
 
 Edit instructions: {edit_instructions}
 
 Case File Notes: {json.dumps(case_file_notes, indent=2, default=str)}
 
-Revise the content according to the instructions.""")
-    ])
+Revise the content according to the instructions."""
+            ),
+        ]
+    )
 
     try:
-        revision_output = await structured_llm.ainvoke(prompt_template.format_messages())
-        
+        revision_output = await structured_llm.ainvoke(
+            prompt_template.format_messages()
+        )
+
         # Store revision
-        state["content_revisions"] = [{
-            "revised_content": revision_output.revised_content,
-            "changes_made": revision_output.changes_made,
-            "improvement_reasoning": revision_output.improvement_reasoning
-        }]
+        state["content_revisions"] = [
+            {
+                "revised_content": revision_output.revised_content,
+                "changes_made": revision_output.changes_made,
+                "improvement_reasoning": revision_output.improvement_reasoning,
+            }
+        ]
 
         # Update final draft
         state["drafted_argument"] = revision_output.revised_content
-        
+
         logger.info("Content revision completed")
-        
+
         # Stream completion update
         new_word_count = len(revision_output.revised_content.split())
-        writer({
-            "step_id": step_id,
-            "status": "complete",
-            "brief_description": "Content revised",
-            "description": f"Revision complete: {revision_output.changes_made} ({new_word_count} words)"
-        })
-        
+        writer(
+            {
+                "step_id": step_id,
+                "status": "complete",
+                "brief_description": "Content revised",
+                "description": f"Revision complete: {revision_output.changes_made} ({new_word_count} words)",
+            }
+        )
+
     except Exception as e:
         logger.error(f"Error in content revision: {e}")
         state["content_revisions"] = []
@@ -873,7 +1014,7 @@ Revise the content according to the instructions.""")
 def create_drafting_graph() -> StateGraph:
     """
     Create and compile the improved drafting workflow graph v2.
-    
+
     Returns:
         Compiled StateGraph with decomposed nodes for better LLM performance
     """
@@ -899,10 +1040,10 @@ def create_drafting_graph() -> StateGraph:
             return "fact_analyzer"
 
     # Set up routing
-    workflow.set_conditional_entry_point(route_entry, {
-        "fact_analyzer": "fact_analyzer",
-        "edit_analyzer": "edit_analyzer"
-    })
+    workflow.set_conditional_entry_point(
+        route_entry,
+        {"fact_analyzer": "fact_analyzer", "edit_analyzer": "edit_analyzer"},
+    )
 
     # Normal workflow edges
     workflow.add_edge("fact_analyzer", "strategy_developer")
@@ -913,10 +1054,7 @@ def create_drafting_graph() -> StateGraph:
     workflow.add_conditional_edges(
         "simple_critic",
         strategy_approval_check,
-        {
-            "argument_improver": "argument_improver",
-            "final_drafter": "final_drafter"
-        }
+        {"argument_improver": "argument_improver", "final_drafter": "final_drafter"},
     )
 
     # Improvement loop

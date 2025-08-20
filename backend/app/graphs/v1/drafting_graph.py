@@ -105,27 +105,29 @@ class CritiqueOutput(BaseModel):
 async def strategist_node(state: DraftingState) -> DraftingState:
     """
     Generate or refine legal strategy based on facts and precedents.
-    
+
     If this is an editing scenario, it will revise the existing draft based on edit instructions.
     """
     # Stream custom update
     writer = get_stream_writer()
-    writer({
-        "brief_description": "Developing legal strategy",
-        "description": "Analyzing facts and precedents to develop or revise a comprehensive legal strategy for the argument."
-    })
+    writer(
+        {
+            "brief_description": "Developing legal strategy",
+            "description": "Analyzing facts and precedents to develop or revise a comprehensive legal strategy for the argument.",
+        }
+    )
     logger.info("Strategist node: Analyzing case and developing strategy")
 
     user_facts = state["user_facts"]
     case_file = state.get("case_file", {})
     legal_question = state.get("legal_question", "")
     additional_instructions = state.get("additional_drafting_instructions", "")
-    
+
     # Check if this is an editing scenario
     is_editing = state.get("is_editing", False)
     existing_draft = state.get("existing_draft", "")
     edit_instructions = state.get("edit_instructions", "")
-    
+
     # Check if this is a revision after critique
     critique_feedback = state.get("critique_feedback", "")
     is_revision = bool(critique_feedback)
@@ -175,12 +177,12 @@ AVAILABLE PRECEDENTS:
 
         if legal_question:
             context_prompt += f"\n\nLEGAL QUESTION: {legal_question}"
-        
+
         if additional_instructions:
             context_prompt += f"\n\nADDITIONAL INSTRUCTIONS: {additional_instructions}"
 
         context_prompt += "\n\nRevise the legal argument and strategy based on the edit instructions provided."
-        
+
     elif is_revision:
         # Existing revision logic
         system_prompt = """You are a senior legal strategist revising your strategy based on critique feedback.
@@ -210,11 +212,13 @@ PREVIOUS CRITIQUE: {critique_feedback}"""
 
         if legal_question:
             context_prompt += f"\n\nSPECIFIC LEGAL QUESTION: {legal_question}"
-        
+
         if additional_instructions:
             context_prompt += f"\n\nUSER INSTRUCTIONS: {additional_instructions}"
 
-        context_prompt += "\n\nRevise the legal strategy to address the identified weaknesses."
+        context_prompt += (
+            "\n\nRevise the legal strategy to address the identified weaknesses."
+        )
 
     else:
         # Original strategy development logic
@@ -245,7 +249,7 @@ AVAILABLE PRECEDENTS: {json.dumps(case_file, indent=2, default=str)}"""
 
         if legal_question:
             context_prompt += f"\n\nSPECIFIC LEGAL QUESTION: {legal_question}"
-        
+
         if additional_instructions:
             context_prompt += f"\n\nUSER INSTRUCTIONS: {additional_instructions}"
 
@@ -311,7 +315,7 @@ RELEVANT LEGAL TESTS:
 
     # Update state
     state["proposed_strategy"] = strategy
-    
+
     # Get or increment strategy version
     strategy_version = state.get("strategy_version", 0) + 1
     state["strategy_version"] = strategy_version
@@ -461,10 +465,12 @@ async def drafting_team_node(state: DraftingState) -> DraftingState:
     """
     # Stream custom update
     writer = get_stream_writer()
-    writer({
-        "brief_description": "Drafting legal argument",
-        "description": "Drafting a comprehensive legal argument using the approved strategy, facts, and case file."
-    })
+    writer(
+        {
+            "brief_description": "Drafting legal argument",
+            "description": "Drafting a comprehensive legal argument using the approved strategy, facts, and case file.",
+        }
+    )
     logger.info("Executing DraftingTeamNode")
 
     approved_strategy = state.get("proposed_strategy", {})
@@ -506,7 +512,7 @@ CASE FILE:
 
     if legal_question:
         drafting_prompt += f"\n\nSPECIFIC LEGAL QUESTION: {legal_question}"
-    
+
     if additional_instructions:
         drafting_prompt += f"\n\nUSER INSTRUCTIONS: {additional_instructions}"
 

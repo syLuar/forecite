@@ -21,8 +21,12 @@ class CaseFile(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    user_facts = Column(Text, nullable=True)  # Static case facts - now belongs to case file
-    party_represented = Column(String(100), nullable=True)  # Which party the user represents (e.g., "Plaintiff", "Defendant", "Petitioner", "Respondent", "Appellant", "Appellee")
+    user_facts = Column(
+        Text, nullable=True
+    )  # Static case facts - now belongs to case file
+    party_represented = Column(
+        String(100), nullable=True
+    )  # Which party the user represents (e.g., "Plaintiff", "Defendant", "Petitioner", "Respondent", "Appellant", "Appellee")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -113,19 +117,23 @@ class MootCourtSession(Base):
 
     # Session content
     counterarguments = Column(JSON, nullable=False)  # List of counterargument objects
-    rebuttals = Column(JSON, nullable=False)  # List of rebuttal groups for each counterargument
-    
+    rebuttals = Column(
+        JSON, nullable=False
+    )  # List of rebuttal groups for each counterargument
+
     # Source arguments that were analyzed
-    source_arguments = Column(JSON, nullable=True)  # Key arguments from the selected draft
-    
+    source_arguments = Column(
+        JSON, nullable=True
+    )  # Key arguments from the selected draft
+
     # RAG retrieval context
     research_context = Column(JSON, nullable=True)  # Summary of retrieved knowledge
-    
+
     # Quality metrics
     counterargument_strength = Column(Float, nullable=True)
     research_comprehensiveness = Column(Float, nullable=True)
     rebuttal_quality = Column(Float, nullable=True)
-    
+
     # Metadata
     execution_time = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -138,7 +146,7 @@ class MootCourtSession(Base):
 class CaseFileNote(Base):
     """
     Model for storing notes in a case file scratchpad.
-    
+
     This allows both users and AI to add notes for tracking case-related information.
     The database tools can only modify AI-generated notes for security.
     """
@@ -147,19 +155,23 @@ class CaseFileNote(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     case_file_id = Column(Integer, ForeignKey("case_files.id"), nullable=False)
-    
+
     # Note content
     content = Column(Text, nullable=False)
     author_type = Column(String(20), nullable=False)  # 'user' or 'ai'
-    author_name = Column(String(100), nullable=True)  # Optional name/identifier for the author
-    
+    author_name = Column(
+        String(100), nullable=True
+    )  # Optional name/identifier for the author
+
     # Categorization
-    note_type = Column(String(50), nullable=True)  # e.g., 'research', 'strategy', 'fact', 'reminder'
+    note_type = Column(
+        String(50), nullable=True
+    )  # e.g., 'research', 'strategy', 'fact', 'reminder'
     tags = Column(JSON, nullable=True)  # Optional tags for organization
-    
+
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # Relationships
     case_file = relationship("CaseFile", back_populates="notes")
