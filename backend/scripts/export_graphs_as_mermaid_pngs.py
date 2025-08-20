@@ -15,9 +15,7 @@ WORKFLOWS = [
     ("app.graphs.v2.research_graph", "research_graph", "research_graph_v2.png"),
     ("app.graphs.v2.drafting_graph", "drafting_graph", "drafting_graph_v2.png"),
     ("app.graphs.v2.counterargument_graph", "counterargument_graph", "counterargument_graph_v2.png"),
-    ("app.graphs.v3.research_graph", "research_graph", "research_graph_v3.png"),
-    ("app.graphs.v3.drafting_graph", "drafting_graph", "drafting_graph_v3.png"),
-    ("app.graphs.v3.counterargument_graph", "counterargument_graph", "counterargument_graph_v3.png"),
+    ("app.graphs.v2.research_agent", "research_agent.agent_executor", "research_agent_v2.png"),
 ]
 
 def render_mermaid_to_png(graph, output_path):
@@ -31,7 +29,11 @@ def main():
     for module_name, var_name, out_file in WORKFLOWS:
         try:
             mod = importlib.import_module(module_name)
-            graph = getattr(mod, var_name)
+            parts = var_name.split(".")
+            graph = mod
+            for part in parts:
+                graph = getattr(graph, part)
+                
             out_path = VIS_DIR / out_file
             render_mermaid_to_png(graph, out_path)
             print(f"Exported {module_name}.{var_name} to {out_path}")
