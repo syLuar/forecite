@@ -1,298 +1,509 @@
-# Legal Research Assistant - Agent Implementation
+# Forecite Legal Research Assistant - Backend
 
-This implementation provides the complete agent teams as specified in the architecture documentation. The system uses LangGraph to create dynamic, self-correcting workflows for legal research and argument drafting.
+A sophisticated AI-powered legal research and argument drafting system built with FastAPI, LangGraph, and Neo4j. This backend provides intelligent agent workflows for comprehensive legal research, document analysis, and argument generation with iterative refinement capabilities.
 
-## Installation Guide
+## 🎯 Overview
+
+The Forecite backend is the core engine powering an AI legal research assistant that helps legal professionals:
+
+- **Conduct Comprehensive Research**: Multi-agent research workflows with automatic query refinement and quality assessment
+- **Draft Legal Arguments**: AI-powered argument generation with iterative critique and improvement cycles  
+- **Practice Moot Court**: Generate counterarguments and rebuttals for advocacy training
+- **Manage Case Files**: Organize research findings, documents, and drafts in structured case files
+- **Analyze Precedents**: Deep citation network analysis and precedent strength assessment
+
+## 🏗️ Architecture
+
+### Core Components
+
+```
+backend/
+├── main.py                    # FastAPI application entry point
+├── app/
+│   ├── core/                  # Configuration, database, LLM initialization
+│   ├── graphs/                # LangGraph agent workflow definitions
+│   │   └── v2/               # Current implementation (v2)
+│   │       ├── research_graph.py      # Research refinement workflow
+│   │       ├── drafting_graph.py      # Argument drafting workflow
+│   │       ├── counterargument_graph.py # Moot court practice workflow
+│   │       ├── research_agent.py      # ReAct research agent
+│   │       └── state.py              # Shared state management
+│   ├── models/                # Data models and schemas
+│   │   ├── schemas.py         # Pydantic API models
+│   │   └── database_models.py # SQLAlchemy database models
+│   ├── services/              # Business logic layer
+│   │   └── case_file_service.py # Case file and draft management
+│   └── tools/                 # Agent tools and utilities
+│       ├── neo4j_tools.py     # Knowledge graph operations
+│       ├── research_tools.py  # Research-specific tools
+│       └── database_tools.py  # Database mutation tools
+├── scripts/                   # Utility and setup scripts
+│   ├── setup_database.py      # Database initialization
+│   ├── ingest_graph.py        # Knowledge graph population
+│   ├── scrape_singapore_cases.py # Legal document scraping
+│   └── export_graphs_as_mermaid_pngs.py # Graph visualization
+└── static/docs/              # Static documentation
+```
+
+### Technology Stack
+
+- **Web Framework**: FastAPI with async/await support, automatic OpenAPI documentation
+- **AI Orchestration**: LangGraph for complex agent workflows and state management
+- **LLM Integration**: Google Gemini, OpenAI GPT with configurable model selection
+- **Knowledge Graph**: Neo4j with vector embeddings for semantic search
+- **Relational Database**: SQLite (development) / PostgreSQL (production) 
+- **Document Processing**: LangChain text splitters, embeddings, and document loaders
+- **Type Safety**: Pydantic for request/response validation and structured LLM outputs
+- **Caching**: Advanced caching system for embeddings, entities, and knowledge graphs
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-Before setting up the backend, ensure you have the following installed:
+- **Python 3.11+** (Python 3.13 recommended)
+- **Neo4j Database** (hosted or local)
+- **Google API Key** (for Gemini LLM)
+- **OpenAI API Key** (for OpenAI LLMs)
 
-- **Python 3.11 or higher** (3.13 recommended)
-- **Git** for cloning the repository
-- **Access to Neo4j Database** (hosted on VPS)
+### Installation
 
-### 1. Clone the Repository
+1. **Clone and navigate to backend**:
+   ```bash
+   git clone https://github.com/syLuar/forecite.git
+   cd forecite/backend
+   ```
 
-```bash
-git clone https://github.com/syLuar/forecite.git
-cd forecite/backend
-```
+2. **Create virtual environment**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Windows: venv\Scripts\activate
+   ```
 
-### 2. Python Environment Setup
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Create and activate a virtual environment:
-
-```bash
-# Using venv
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Or using conda
-conda create -n forecite python=3.13
-conda activate forecite
-```
-
-### 3. Install Dependencies
-
-Install all required Python packages:
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Environment Configuration
-
-1. **Copy environment template:**
+4. **Configure environment**:
    ```bash
    cp .env.example .env
+   # Edit .env with your configuration (see Configuration section)
    ```
 
-2. **Configure environment variables in `.env`:**
-
+5. **Initialize database**:
    ```bash
-   # LLM Configuration
-   LLM_CONFIG_PATH=./llm_config.yaml
-   
-   # Google Gemini Configuration (Required)
-   GOOGLE_API_KEY=your_google_api_key_here
-   GEMINI_MODEL=gemini-2.5-flash-lite
-   
-   # LangSmith Configuration (Optional - for debugging)
-   LANGSMITH_TRACING=true
-   LANGSMITH_API_KEY=your_langsmith_api_key_here
-   LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
-   LANGSMITH_PROJECT="forecite"
-   
-   # Neo4j Configuration (VPS Hosted)
-   NEO4J_URI=bolt://your_vps_ip:7687
-   NEO4J_USERNAME=neo4j
-   NEO4J_PASSWORD=your_neo4j_password_here
-   NEO4J_DATABASE=neo4j
-   
-   # Vector Index Configuration
-   VECTOR_INDEX_NAME=chunk_embeddings
+   python scripts/setup_database.py
    ```
 
-### 6. API Keys Setup
+6. **Start the server**:
+   ```bash
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
 
-#### Google Gemini API Key (Required)
+The API will be available at:
+- **Base URL**: `http://localhost:8000`
+- **Interactive Docs**: `http://localhost:8000/docs`
+- **API Schema**: `http://localhost:8000/redoc`
 
-1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Create a new API key
-3. Add it to your `.env` file as `GOOGLE_API_KEY`
+## ⚙️ Configuration
 
-#### LangSmith API Key (Optional)
+### Environment Variables
 
-1. Sign up at [LangSmith](https://smith.langchain.com/)
-2. Generate an API key from your settings
-3. Add it to your `.env` file as `LANGSMITH_API_KEY`
-
-### 6. Database Initialization
-
-Initialize the knowledge graph with legal documents:
+Create a `.env` file with the following configuration:
 
 ```bash
-# Process and ingest legal documents
-python scripts/ingest_graph.py
+# LLM Configuration
+LLM_CONFIG_PATH=./llm_config.yaml
+GOOGLE_API_KEY=your_google_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
 
-# Optional: Scrape Singapore case law (takes time)
+# Neo4j Configuration
+NEO4J_URI=bolt://your_neo4j_host:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+NEO4J_DATABASE=neo4j
+VECTOR_INDEX_NAME=chunk_embeddings
+
+# LangSmith (Optional - for debugging)
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your_langsmith_key
+LANGSMITH_PROJECT=forecite
+
+# Application Settings
+ENVIRONMENT=development  # or production
+DEBUG=false
+```
+
+### LLM Configuration (`llm_config.yaml`)
+
+Configure different models for different workflows:
+
+```yaml
+embeddings:
+  model: "gemini-embedding-001"
+  dimension: 3072
+  model_provider: "google"
+
+main:
+  research_graph:
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    model_provider: "google"
+  
+  drafting_graph:
+    model: "gemini-2.5-flash-lite"
+    temperature: 0.2
+    model_provider: "google"
+    # Per-node configuration for specialized tasks
+    nodes:
+      final_drafter_node:
+        model: "gpt-4o"  # Use more powerful model for final drafting
+        temperature: 0.5
+        model_provider: "openai"
+```
+
+## 🤖 Agent Workflows
+
+### 1. Research Graph (`research_graph.py`)
+
+**Purpose**: Comprehensive legal research with automatic refinement
+
+**Workflow**:
+```
+Query Analysis → Strategy Selection → Search Execution → Quality Assessment
+     ↓                                                        ↓
+Refinement ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←← (if needed)
+```
+
+**Key Features**:
+- Multi-strategy search (semantic, fulltext, citation, concept-based)
+- Automatic query refinement with quality thresholds
+- Jurisdiction and document type filtering
+- Maximum 3 refinement cycles to prevent infinite loops
+
+**Example Usage**:
+```python
+initial_state = {
+    "query_text": "negligence duty of care Singapore",
+    "jurisdiction_filter": "Singapore",
+    "refinement_count": 0
+}
+
+final_state = await research_graph.ainvoke(initial_state)
+```
+
+### 2. Drafting Graph (`drafting_graph.py`)
+
+**Purpose**: Legal argument generation with iterative improvement
+
+**Workflow**:
+```
+Fact Analysis → Strategy Development → Argument Drafting → Critique Assessment
+     ↓                                         ↓                ↓
+Legal Issue Identification            Precedent Integration    Refinement ←←
+```
+
+**Key Features**:
+- Comprehensive legal strategy development
+- Precedent-based argument construction
+- Iterative critique and improvement cycles
+- Citation validation and authority analysis
+
+**Example Usage**:
+```python
+initial_state = {
+    "user_facts": "Plaintiff entered into a supply contract...",
+    "case_file": case_file_documents,
+    "legal_question": "Was there a breach of duty?"
+}
+
+final_state = await drafting_graph.ainvoke(initial_state)
+```
+
+### 3. Research Agent (`research_agent.py`)
+
+**Purpose**: Interactive ReAct agent for guided research
+
+**Capabilities**:
+- Natural language research planning
+- Tool-based document discovery
+- Real-time case file population
+- Research note generation
+
+**Available Tools**:
+- `semantic_search_legal_content()`: Vector-based document search
+- `find_cases_by_fact_pattern()`: Analogical reasoning
+- `extract_legal_information()`: Entity extraction from documents
+- `add_document_tool()`: Save discoveries to case files
+
+### 4. Counterargument Graph (`counterargument_graph.py`)
+
+**Purpose**: Moot court practice with counterargument generation
+
+**Workflow**:
+```
+Argument Analysis → Opposition Research → Counterargument Generation → Rebuttal Development
+```
+
+**Features**:
+- RAG-based opposition research
+- Comprehensive counterargument generation
+- Strategic rebuttal development
+- Practice session management
+
+## 🛠️ Tools & Utilities
+
+### Neo4j Tools (`neo4j_tools.py`)
+
+Comprehensive knowledge graph operations:
+
+```python
+# Vector similarity search
+results = vector_search(query="contract breach", top_k=10)
+
+# Citation network analysis  
+network = find_case_citations("Spandeck Engineering", direction="both")
+
+# Precedent strength assessment
+strength = assess_precedent_strength("Spandeck Engineering [2007] SGCA 10")
+
+# Legal concept discovery
+concepts = find_legal_concepts(["negligence", "duty of care"])
+```
+
+### Research Tools (`research_tools.py`)
+
+Streamlined research operations:
+
+```python
+# Semantic search with filtering
+results = semantic_search_legal_content(
+    query="negligence standard of care",
+    legal_tags=["tort", "negligence"],
+    jurisdiction="Singapore"
+)
+
+# Fact pattern matching
+patterns = find_cases_by_fact_pattern(
+    fact_pattern="medical negligence misdiagnosis",
+    jurisdiction="Singapore"
+)
+```
+
+### Database Tools (`database_tools.py`)
+
+Real-time database mutations during agent workflows:
+
+```python
+# Create case file
+case_id = create_case_file(
+    title="Contract Dispute Analysis",
+    user_facts="Client claims breach of supply agreement",
+    party_represented="Plaintiff"
+)
+
+# Add discovered documents
+add_document_to_case_file(
+    case_file_id=case_id,
+    document_data=research_result
+)
+```
+
+## 📋 Scripts & Management
+
+### Database Setup
+```bash
+# Initialize database tables and constraints
+python scripts/setup_database.py
+
+# Migrate database schema
+python scripts/db_migration.py
+```
+
+### Knowledge Graph Management
+```bash
+# Populate knowledge graph with legal documents
+python scripts/ingest_graph.py --docs-dir data/cases/
+
+# Clear and rebuild graph
+python scripts/ingest_graph.py --reset-db
+
+# Filter by legal areas
+python scripts/ingest_graph.py --required-tags "contract,tort"
+```
+
+### Document Processing
+```bash
+# Process individual PDF documents
+python scripts/process_pdf.py path/to/document.pdf
+
+# Scrape Singapore case law
 python scripts/scrape_singapore_cases.py
 ```
 
-### 7. Start the Application
-
-Run the FastAPI development server:
-
+### Visualization
 ```bash
-# Development mode with auto-reload
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-# Production mode
-uvicorn main:app --host 0.0.0.0 --port 8000
+# Export graph visualizations
+python scripts/export_graphs_as_mermaid_pngs.py
 ```
 
-The backend will be available at:
-- **API Base URL:** `http://localhost:8000`
-- **Interactive API Documentation:** `http://localhost:8000/docs`
-- **OpenAPI Schema:** `http://localhost:8000/redoc`
+## 🔌 API Endpoints
 
-### 8. Verify Installation
+### Research Endpoints
 
-Test the API endpoints:
+- `POST /api/v1/research/query` - Execute research workflow
+- `POST /api/v1/research/conduct-research` - ReAct agent research
+- `GET /api/v1/research/precedent-analysis/{citation}` - Precedent analysis
+- `GET /api/v1/research/citation-network/{citation}` - Citation network
 
-```bash
-# Health check
-curl http://localhost:8000/health
+### Drafting Endpoints
 
-# Test research endpoint
-curl -X POST "http://localhost:8000/api/v1/research/query" \
-     -H "Content-Type: application/json" \
-     -d '{"query": "negligence duty of care Singapore", "max_results": 5}'
-```
+- `POST /api/v1/generation/draft-argument` - Generate legal arguments
+- `POST /api/v1/drafts/ai-edit` - AI-assisted draft editing
+- `GET /api/v1/drafts/{draft_id}` - Retrieve saved drafts
 
-#### Logs and Debugging:
+### Case Management Endpoints
 
-- Application logs: Check console output when running uvicorn
-- Neo4j logs: Available on your VPS Neo4j instance
-- Enable LangSmith tracing for detailed LLM interaction logs
+- `POST /api/v1/case-files` - Create case files
+- `GET /api/v1/case-files/{id}` - Retrieve case file details
+- `POST /api/v1/case-files/{id}/documents` - Add documents
+- `POST /api/v1/case-files/{id}/notes` - Add research notes
 
-### Development Setup
+### Moot Court Endpoints
 
-For development work:
+- `POST /api/v1/moot-court/generate-counterarguments` - Generate counterarguments
+- `POST /api/v1/moot-court/save-session` - Save practice sessions
 
-```bash
-# Install development dependencies
-pip install pytest pytest-asyncio black isort mypy
+## 🔍 Key Features
 
-# Run tests
-pytest
+### Structured Output Validation
 
-# Format code
-black .
-isort .
+All LLM interactions use Pydantic models for guaranteed type safety:
 
-# Type checking
-mypy .
-```
-
-## Implementation Overview
-
-### 1. State Management (`app/graphs/state.py`)
-- **ResearchState**: Tracks iterative research refinement with query planning, retrieval results, and assessment metrics
-- **DraftingState**: Manages strategy development, critique cycles, and argument generation
-- **Supporting Types**: CaseFileDocument, SearchPlan, ArgumentStrategy for structured data flow
-
-### 2. Research Graph (`app/graphs/research_graph.py`)
-Implements the "Refinement Loop" workflow with these nodes:
-
-#### Nodes:
-- **QueryPlannerNode**: Analyzes user queries and creates search plans with appropriate strategies and filters
-- **RetrievalNode**: Executes searches using Neo4j tools (vector search, fulltext, citation analysis, concept search)
-- **QueryRefinerNode**: Improves search strategies based on assessment feedback
-
-#### Conditional Logic:
-- **AssessRetrievalNode**: Evaluates result quality and quantity, deciding whether to refine or complete
-- Maximum 3 refinement cycles to prevent infinite loops
-- Quality thresholds: minimum 3 results with average relevance score ≥ 0.6
-
-### 3. Drafting Graph (`app/graphs/drafting_graph.py`)
-Implements the "Critique Loop" workflow with these nodes:
-
-#### Nodes:
-- **StrategistNode**: Develops legal strategies based on facts and precedents, incorporates critique feedback
-- **DraftingTeamNode**: Generates final legal arguments using approved strategies
-
-#### Conditional Logic:
-- **CritiqueNode**: "Red team" analysis that evaluates strategy strength, identifies weaknesses, suggests improvements
-- Maximum 3 critique cycles with approval threshold ≥ 0.6 quality score
-- Routes to revision or final drafting based on assessment
-
-### 4. Neo4j Tools Integration (`app/tools/neo4j_tools.py`)
-The graphs leverage these specialized tools:
-
-#### Research Tools:
-- `vector_search`: Semantic similarity search with jurisdiction/date filtering
-- `fulltext_search`: Traditional text search on documents and chunks
-- `find_case_citations`: Citation network analysis for precedent discovery
-- `find_legal_concepts`: Concept-based document retrieval
-
-#### Drafting Tools:
-- `find_similar_fact_patterns`: Pattern matching for analogical reasoning
-- `assess_precedent_strength`: Authority analysis for strategy validation
-- `find_legal_tests`: Legal standard identification
-- `find_authority_chain`: Precedent hierarchy construction
-
-### 5. API Layer (`main.py`)
-FastAPI endpoints that orchestrate the workflows:
-
-#### Core Endpoints:
-- `POST /api/v1/research/query`: Executes research graph with refinement
-- `POST /api/v1/generation/draft-argument`: Executes drafting graph with critique
-
-#### Analysis Endpoints:
-- `GET /api/v1/research/precedent-analysis/{citation}`: Standalone precedent analysis
-- `GET /api/v1/research/citation-network/{citation}`: Citation network exploration
-
-## Key Features
-
-### Dynamic Reasoning
-- **Conditional Edges**: Workflows adapt based on intermediate results
-- **Self-Assessment**: Agents evaluate their own output quality
-- **Iterative Refinement**: Automatic improvement through feedback loops
-
-### Structured Output
-- **Pydantic Models**: All LLM outputs use structured output with Pydantic models for reliability
-- **Type Safety**: Eliminates JSON parsing errors and ensures consistent data structures
-- **Validation**: Automatic validation of LLM responses with clear error handling
-
-### Error Handling
-- Graceful degradation with fallback strategies
-- Comprehensive logging for debugging
-- Maximum iteration limits to prevent infinite loops
-
-### Type Safety
-- Pydantic models for API contracts
-- TypedDict states for workflow consistency
-- Full type annotations throughout
-
-## Structured Output Implementation
-
-### Research Graph Structured Models
-- **SearchPlanOutput**: Validates search strategy with confidence scoring and rationale
-- **RefinementPlanOutput**: Ensures refinement plans have clear improvement rationale
-
-### Drafting Graph Structured Models  
-- **StrategyOutput**: Comprehensive legal strategy with typed argument components
-- **CritiqueOutput**: Structured critique with assessment scores and specific feedback
-- **LegalArgumentComponent**: Individual argument elements with supporting authority
-
-### Benefits of Structured Output
-- **Reliability**: Eliminates JSON parsing failures and malformed responses
-- **Validation**: Automatic type checking and constraint validation (e.g., scores 0-1)
-- **Consistency**: Guaranteed data structure consistency across all agent interactions
-- **Debugging**: Clear error messages when LLM outputs don't match expected schema
-
-### Example Usage
 ```python
-# Instead of parsing JSON manually:
-response = llm.invoke(prompt)
-try:
-    plan = json.loads(response.content)  # Error-prone
-except JSONDecodeError:
-    # Handle parsing error
+class SearchPlanOutput(BaseModel):
+    strategy: str = Field(description="Search strategy")
+    confidence: float = Field(ge=0.0, le=1.0)
+    rationale: str = Field(min_length=10)
 
-# Use structured output:
+# Structured LLM calls
 structured_llm = llm.with_structured_output(SearchPlanOutput)
-plan = structured_llm.invoke(prompt)  # Always returns valid SearchPlanOutput
+plan = structured_llm.invoke(prompt)  # Always returns SearchPlanOutput
 ```
 
-## Workflow Examples
+### Streaming Support
 
-### Research Workflow:
-1. User submits: "negligence duty of care Singapore"
-2. QueryPlanner creates semantic search strategy
-3. Retrieval finds 8 results with avg score 0.5
-4. Assessment determines insufficient quality
-5. QueryRefiner broadens to include "tort law" and "reasonable person"
-6. Second retrieval finds 12 results with avg score 0.8
-7. Assessment approves and workflow completes
+Real-time streaming for long-running agent workflows:
 
-### Drafting Workflow:
-1. User provides facts about professional negligence case
-2. Strategist proposes argument based on Spandeck Engineering framework
-3. Critique identifies weak factual analogies and insufficient authority
-4. Strategist revises with stronger precedents and improved fact analysis
-5. Second critique approves strategy (score 0.85)
-6. DraftingTeam generates structured legal argument with citations
+```python
+# Enable streaming in requests
+request = ResearchQueryRequest(
+    query_text="negligence analysis",
+    stream=True
+)
 
-## Integration with Knowledge Graph
+# Streaming response with progress updates
+for chunk in stream_research_query(request):
+    print(f"Progress: {chunk}")
+```
 
-The agents seamlessly integrate with the Neo4j knowledge graph through:
-- **Vector embeddings** for semantic search
-- **Citation networks** for authority analysis  
-- **Concept relationships** for legal principle tracking
-- **Fact pattern matching** for analogical reasoning
-- **Temporal precedent analysis** for authority strength
+### Caching System
 
-This implementation provides the sophisticated reasoning capabilities described in the architecture while maintaining modularity, type safety, robust error handling, and reliable structured output for all LLM interactions.
+Advanced caching for performance optimization:
+
+```python
+# Cached operations during knowledge graph ingestion
+cache = LLMCache()
+embedding = cache.get_embedding(text)  # Returns cached or generates new
+entities = cache.get_entities(chunk)   # Cached entity extraction
+summary = cache.get_summary(text)      # Cached summarization
+```
+
+### Error Handling & Resilience
+
+- Automatic retry logic for LLM API calls
+- Graceful degradation for failed operations
+- Comprehensive logging and monitoring
+- Circuit breaker patterns for external services
+
+## 🚀 Production Deployment
+
+### Environment Configuration
+
+**Production Settings**:
+```bash
+ENVIRONMENT=production
+DEBUG=false
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+```
+
+**Performance Optimization**:
+```bash
+# Use production ASGI server
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker
+
+# Configure Neo4j connection pooling
+NEO4J_MAX_CONNECTION_POOL_SIZE=50
+NEO4J_CONNECTION_TIMEOUT=30
+```
+
+### Monitoring & Observability
+
+- **Health Checks**: `/health` endpoint for service monitoring
+- **LangSmith Integration**: Detailed tracing of LLM interactions
+- **Structured Logging**: JSON-formatted logs for analysis
+- **Performance Metrics**: Request timing and success rates
+
+### Security Considerations
+
+- API key rotation and secure storage
+- Input validation and sanitization  
+- Rate limiting for resource-intensive operations
+- Database connection security and encryption
+
+## 📚 Documentation
+
+- **API Documentation**: Available at `/docs` (Swagger UI)
+- **OpenAPI Schema**: Available at `/redoc`
+- **User Guide**: Static documentation in `/static/docs/`
+- **Architecture Details**: See main project documentation
+
+## 🆘 Troubleshooting
+
+### Common Issues
+
+**Neo4j Connection Errors**:
+```bash
+# Check Neo4j connectivity
+python -c "from neo4j import GraphDatabase; driver = GraphDatabase.driver('bolt://localhost:7687', auth=('neo4j', 'password')); driver.verify_connectivity()"
+```
+
+**LLM API Issues**:
+- Verify API keys in `.env`
+- Check API quotas and rate limits
+- Enable LangSmith tracing for detailed debugging
+
+**Performance Issues**:
+- Monitor Neo4j query performance
+- Check vector index status
+- Review caching effectiveness
+
+**Memory Issues**:
+- Adjust chunk sizes in configuration
+- Monitor embedding cache size
+- Configure connection pool limits
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+Built with:
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
+- [LangGraph](https://python.langchain.com/docs/langgraph) - Agent orchestration
+- [Neo4j](https://neo4j.com/) - Graph database
+- [Google Gemini](https://ai.google.dev/) - Large language models
+- [LangChain](https://python.langchain.com/) - LLM integration framework
