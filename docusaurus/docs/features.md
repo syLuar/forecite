@@ -31,7 +31,6 @@ Perfect your legal arguments with our advanced practice tools:
 2. **Find the Moot Court Section**: Click "Moot Court" section at the top right corner
 ![Moot Court](/img/moot1.png)
 3. **Start a Session**: Click "Start Moot Court Session" to begin practicing
-4. **Choose Practice Type**: Select from the available practice modes
 ![Moot Court](/img/moot2.png)
 
 ### Getting Started with Moot Court
