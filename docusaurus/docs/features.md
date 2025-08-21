@@ -34,18 +34,6 @@ Perfect your legal arguments with our advanced practice tools:
 4. **Choose Practice Type**: Select from the available practice modes
 ![Moot Court](/img/moot2.png)
 
-### Practice Modes
-- **Solo Practice**: Present arguments and receive AI feedback
-- **Opposition Simulation**: Practice against AI-generated counter-arguments
-- **Real-time Analysis**: Get instant feedback on argument structure and strength
-- **Performance Tracking**: Monitor improvement over time
-
-### Practice Features
-- **Argument Structure Analysis**: Ensure logical flow and coherence
-- **Citation Validation**: Verify accuracy of legal citations
-- **Delivery Assessment**: Improve presentation skills
-- **Weakness Identification**: Address gaps in reasoning
-
 ### Getting Started with Moot Court
 1. **Create or open a case** in the Strategy tab
 2. **Add your arguments** to the case file
